@@ -152,3 +152,229 @@ prompt, resolved by adding `--ai-config=none` on retry). None of the overrun was
 plan itself being wrong; all of it was local-machine tooling friction, resolved without
 architectural changes.
 
+---
+
+## Phase 2 — Domain models and rules
+
+**Status:** ✅ Complete · **Commit:** `8f08365` — "Phase 2: Domain models and rules (Airport,
+CabinClass, FlightSearchCriteria.IsInternational, FlightOffer, Booking, Passenger,
+DocumentValidator, IFlightProvider) + Phase 1 implementation log"
+
+### What was implemented
+
+All 9 files listed in `docs/03-execution-plan.md` Phase 2 were created in
+`backend/SkyRoute.Domain/`, exactly as specified, with no additions and no omissions:
+
+- `ValueObjects/Airport.cs` — `sealed record Airport(string Code, string City, string Country,
+  string CountryCode)`.
+- `Enums/CabinClass.cs` — `Economy, Business, First`.
+- `Enums/BookingStatus.cs` — `Confirmed` only, kept as an enum for future extensibility
+  (e.g. `Cancelled`) per the plan's own note.
+- `Models/FlightSearchCriteria.cs` — `Origin`/`Destination` as full `Airport` value objects,
+  `DepartureDate` (`DateOnly`), `PassengerCount`, `CabinClass`, and the derived
+  `IsInternational => Origin.CountryCode != Destination.CountryCode` property, copied verbatim
+  from the plan's code sample.
+- `Models/FlightOffer.cs` — provider, flight number, origin/destination as plain airport code
+  strings (matching the `02-revision.md` JSON contract, where offers carry codes, not full
+  `Airport` objects), `DepartureTime`/`ArrivalTime` as unspecified-kind `DateTime` (no UTC
+  offset — airport-local), `DurationMinutes`, `CabinClass`, `PricePerPassenger` (`decimal`).
+  **Confirmed: no `IsInternational` property here**, per the plan's explicit instruction.
+- `Entities/Passenger.cs` — `FullName`, `Email`, `DocumentNumber`.
+- `Entities/Booking.cs` — `Reference`, `FlightOffer` (embedded snapshot, not a live reference),
+  `Passengers`, `TotalPrice`, `Currency`, `Status`, `CreatedAtUtc`.
+- `Rules/DocumentValidator.cs` — copied verbatim from the plan's code sample: `IsValidPassport`
+  (`^[A-Z]{1,2}[0-9]{6,7}$`), `IsValidNationalId` (`^[0-9]{9}$`), `IsValid(documentNumber,
+  isInternational)` dispatcher, `Normalize` (trim + uppercase) helper. Placed in
+  `Domain/Rules/`, **not** `Application/Services/`, per the confirmed architectural decision.
+- `Interfaces/IFlightProvider.cs` — `ProviderName` + `SearchAsync(FlightSearchCriteria,
+  CancellationToken) : Task<IReadOnlyList<FlightOffer>>`, matching the architecture baseline
+  section of the execution plan exactly.
+
+No files were created beyond this list. `SkyRoute.Domain.csproj` was not modified — it still
+has zero `ProjectReference` entries, confirming Domain remains dependency-free.
+
+### Decisions made during implementation
+
+None beyond what the plan already specified — every file's shape, field names, and the
+`DocumentValidator`/`FlightSearchCriteria` code bodies were taken directly from
+`docs/03-execution-plan.md`. No ambiguity or conflict with `challenge.md` or
+`docs/02-revision.md` was encountered.
+
+One forward-looking observation, **not acted on** in this phase: Phase 8 will need to locate a
+booking's `flightId` inside a cached search's offers, which implies some kind of `Id` on the
+wire-level `FlightOfferDto`. The execution plan does not give `FlightOffer` (the Domain model)
+an `Id` field, which is consistent with the same reasoning already applied to
+`IsInternational` — identity/wire-format concerns belong to the Application DTO layer (Phase 3),
+not to the Domain model. No `Id` field was added to `FlightOffer` in this phase; this is noted
+here so it is not mistaken for an oversight when Phase 3/8 introduce `FlightOfferDto.Id`.
+
+### Deviations from the plan
+
+None. All 9 files match the plan's specification exactly.
+
+### Files added
+
+```
+backend/SkyRoute.Domain/ValueObjects/Airport.cs
+backend/SkyRoute.Domain/Enums/CabinClass.cs
+backend/SkyRoute.Domain/Enums/BookingStatus.cs
+backend/SkyRoute.Domain/Models/FlightSearchCriteria.cs
+backend/SkyRoute.Domain/Models/FlightOffer.cs
+backend/SkyRoute.Domain/Entities/Passenger.cs
+backend/SkyRoute.Domain/Entities/Booking.cs
+backend/SkyRoute.Domain/Rules/DocumentValidator.cs
+backend/SkyRoute.Domain/Interfaces/IFlightProvider.cs
+backend/SkyRoute.Tests/Domain/DocumentValidatorTests.cs        (new — see Validation below)
+backend/SkyRoute.Tests/Domain/FlightSearchCriteriaTests.cs      (new — see Validation below)
+backend/SkyRoute.Tests/UnitTest1.cs                             (deleted — template placeholder,
+                                                                  superseded by real tests above)
+```
+
+No files outside `backend/SkyRoute.Domain/` and `backend/SkyRoute.Tests/` were modified.
+
+### Validation performed
+
+The plan lists two test areas for this phase ("written now or in Phase 9 — logic is simple
+enough to defer without risk"). They were written now, immediately alongside the code, rather
+than deferred, since the milestone-testing instruction for this implementation session calls
+for running relevant tests after each major milestone:
+
+- `DocumentValidatorTests.cs` — 6 `[Theory]`/`[Fact]` methods, 13 total cases: passport accept
+  (`X1234567`, `AB123456`, lower-case input normalized), passport reject (national-id-shaped,
+  empty, null), national ID accept (`123456789`, with surrounding whitespace trimmed),
+  national ID reject (passport-shaped, empty, null), plus two `IsValid(...)` dispatch tests
+  confirming it routes to the correct rule based on `isInternational`. This exceeds the plan's
+  stated minimum of 4 cases.
+- `FlightSearchCriteriaTests.cs` — 2 `[Fact]` methods: same country code (JFK↔LAX, both `US`)
+  → `IsInternational == false`; different country codes (JFK↔LHR, `US` vs `GB`) →
+  `IsInternational == true`.
+
+| Check | Command | Result |
+|---|---|---|
+| Backend build | `dotnet build backend/SkyRoute.slnx` | **Build succeeded**, 0 errors, 2 warnings (pre-existing NU1510, unrelated to this phase) ✅ |
+| Domain isolation | Inspected `SkyRoute.Domain.csproj` | 0 `ProjectReference` entries — confirmed dependency-free ✅ |
+| Unit tests | `dotnet test backend/SkyRoute.slnx` | **Passed! 15/15**, 0 failed, 117 ms ✅ |
+
+All Definition of Done criteria from `docs/03-execution-plan.md` Phase 2 are met:
+`SkyRoute.Domain` compiles with zero dependencies on any other project in the solution;
+`DocumentValidator` and `IsInternational` are callable and correct in isolation, verified by a
+real xUnit test run rather than a scratch test.
+
+### Time
+
+Plan estimate: 20 min. Actual: on par with the estimate — no environment issues were
+encountered in this phase (Phase 1 had already resolved the NuGet/npm friction), and every file
+was a direct transcription of the plan's specification.
+
+---
+
+## Phase 3 — Application layer and DTOs
+
+**Status:** ✅ Complete · **Commit:** `b5ae0d0` — "Phase 3: Application layer and DTOs (7 DTOs,
+IAirportCatalog, ISearchOfferCache, IBookingStore, FlightSearchService/BookingService stubs,
+3 exception types)"
+
+### What was implemented
+
+All 15 files listed in `docs/03-execution-plan.md` Phase 3 were created in
+`backend/SkyRoute.Application/`:
+
+- **7 DTOs** in `Dtos/`: `AirportDto`, `FlightSearchRequestDto`, `FlightOfferDto` (id, provider,
+  flightNumber, origin, destination, departureTime, arrivalTime, durationMinutes, cabinClass,
+  pricePerPassenger, totalPrice), `SearchResponseDto` (searchId, passengerCount, currency,
+  **isInternational**, flights), `PassengerDto`, `BookingRequestDto` (searchId, flightId,
+  passengers — no price, no route data, no isInternational flag), `BookingResponseDto`
+  (bookingReference, status, flightSummary, pricePerPassenger, passengerCount, totalPrice,
+  currency). Field names and shapes match the JSON contracts in `docs/02-revision.md`
+  §"Endpoints" exactly.
+- **3 abstractions** in `Abstractions/`: `IAirportCatalog` (`FindByCode`, `GetAll`),
+  `ISearchOfferCache` (`Store`, `Get`, plus the `CachedSearch` record bundling criteria +
+  offers), `IBookingStore` (`Save`, `FindByReference`) — signatures copied from the plan.
+- **2 service stubs** in `Services/`: `FlightSearchService.SearchAsync` and
+  `BookingService.BookAsync`, both throwing `NotImplementedException` with a message pointing
+  to the phase where each is completed (5 and 8 respectively), per the plan's explicit
+  instruction to stub these now and implement them later.
+- **3 exception types** in `Exceptions/`: `OfferExpiredException` (carries `SearchId`),
+  `FlightNotFoundException` (carries `FlightId`), `ValidationException` (carries a
+  field→errors dictionary, plus a convenience single-field constructor) — covering the three
+  400/404/409 failure modes the plan names.
+
+`SkyRoute.Application.csproj` was not modified beyond what Phase 1 already set up — it still
+has a single `ProjectReference` to `SkyRoute.Domain` only.
+
+### Decisions made during implementation
+
+Two interpretation points, neither of which required inventing a new architectural decision —
+both are documented inline in the source and reasoned from what was already approved:
+
+1. **`ValidationException` is the project's own type, not FluentValidation.** The plan's file
+   list allows `Exceptions/ValidationException.cs (or reuse FluentValidation's if adopted)`.
+   Before writing it, checked whether FluentValidation had been adopted anywhere: it is not
+   referenced in any `.csproj` in the solution, and it is not part of the approved architecture
+   baseline in `docs/02-revision.md` or `docs/03-execution-plan.md` (it only appears in the
+   superseded `docs/01-implementation-plan.md`). Since it was never adopted, the plan's own
+   fallback applies: a project-owned `ValidationException` was written instead, carrying a
+   `field → string[]` error dictionary so the WebApi layer (Phase 5) can map it to a
+   ProblemDetails body with per-field errors.
+2. **`BookingResponseDto.FlightSummary` reuses `FlightOfferDto` rather than a new type.** The
+   plan's Phase 3 file list does not include a separate "flight summary" DTO, and
+   `FlightOfferDto` already carries exactly what `challenge.md` §3.3 asks the booking screen to
+   show (route, provider, times, cabin class) plus the pricing fields. Introducing a second,
+   near-identical DTO would have been an unapproved addition; reusing the existing one keeps
+   the DTO surface exactly as small as the plan specifies.
+
+No other decisions were made. No ambiguity or conflict with `challenge.md` or
+`docs/02-revision.md` blocked this phase.
+
+### Deviations from the plan
+
+None. All 15 files match the plan's specification; the two interpretation points above are
+applications of the plan's own stated fallbacks, not deviations from it.
+
+### Files added
+
+```
+backend/SkyRoute.Application/Dtos/AirportDto.cs
+backend/SkyRoute.Application/Dtos/FlightSearchRequestDto.cs
+backend/SkyRoute.Application/Dtos/FlightOfferDto.cs
+backend/SkyRoute.Application/Dtos/SearchResponseDto.cs
+backend/SkyRoute.Application/Dtos/PassengerDto.cs
+backend/SkyRoute.Application/Dtos/BookingRequestDto.cs
+backend/SkyRoute.Application/Dtos/BookingResponseDto.cs
+backend/SkyRoute.Application/Abstractions/IAirportCatalog.cs
+backend/SkyRoute.Application/Abstractions/ISearchOfferCache.cs
+backend/SkyRoute.Application/Abstractions/IBookingStore.cs
+backend/SkyRoute.Application/Services/FlightSearchService.cs   (stub)
+backend/SkyRoute.Application/Services/BookingService.cs         (stub)
+backend/SkyRoute.Application/Exceptions/OfferExpiredException.cs
+backend/SkyRoute.Application/Exceptions/FlightNotFoundException.cs
+backend/SkyRoute.Application/Exceptions/ValidationException.cs
+backend/SkyRoute.Application/Class1.cs                          (deleted — template placeholder,
+                                                                   superseded by real files above)
+```
+
+No files outside `backend/SkyRoute.Application/` were modified.
+
+### Validation performed
+
+The plan states "Relevant tests: none new in this phase (DTOs are data holders); orchestration
+logic is tested once implemented, in Phases 5 and 8." No new tests were written, matching that
+instruction. The existing Phase 2 test suite was re-run to confirm nothing was broken:
+
+| Check | Command | Result |
+|---|---|---|
+| Backend build | `dotnet build backend/SkyRoute.slnx` | **Build succeeded**, 0 errors, 2 warnings (pre-existing NU1510, unrelated to this phase) ✅ |
+| Application dependency check | Inspected `SkyRoute.Application.csproj` | Single `ProjectReference` → `SkyRoute.Domain` only — confirmed ✅ |
+| Regression check | `dotnet test backend/SkyRoute.slnx` | **Passed! 15/15**, 0 failed, 93 ms — unchanged from Phase 2 ✅ |
+
+All Definition of Done criteria from `docs/03-execution-plan.md` Phase 3 are met:
+`SkyRoute.Application` compiles, referencing only `SkyRoute.Domain`; every DTO field matches
+the JSON contracts in `docs/02-revision.md`; `isInternational` is present on
+`SearchResponseDto` and absent from `FlightOfferDto`.
+
+### Time
+
+Plan estimate: 20 min. Actual: on par with the estimate — no environment issues in this phase;
+the only time spent beyond direct transcription was verifying the FluentValidation-adoption
+question before writing `ValidationException`.
+
