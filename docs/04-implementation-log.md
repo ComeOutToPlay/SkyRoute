@@ -378,3 +378,148 @@ Plan estimate: 20 min. Actual: on par with the estimate — no environment issue
 the only time spent beyond direct transcription was verifying the FluentValidation-adoption
 question before writing `ValidationException`.
 
+---
+
+## Phase 4 — Flight providers and pricing
+
+**Status:** ✅ Complete · **Commit:** `59b5697` — "Phase 4: Flight providers and pricing
+(AirportCatalog, RouteFareTable, GlobalAirProvider, BudgetWingsProvider, MemoryOfferCache,
+Infrastructure DI)"
+
+### What was implemented
+
+All 6 files listed in `docs/03-execution-plan.md` Phase 4 were created in
+`backend/SkyRoute.Infrastructure/`:
+
+- `Data/AirportCatalog.cs` — implements `IAirportCatalog` with the exact 6-airport, 4-country
+  hardcoded list from `docs/02-revision.md` (JFK, LAX, ORD — US; LHR — GB; CDG — FR; FCO — IT).
+- `Providers/RouteFareTable.cs` — internal, shared base-fare/duration/coverage lookup keyed by
+  airport-code pair (order-independent). Encodes: BudgetWings never covers First Class or
+  long-haul routes; `ORD↔FCO` is covered by neither provider (the deliberately uncovered pair
+  that makes the empty state reachable). Also exposes `CabinMultiplier` (Economy 1.0 / Business
+  2.5 / First 4.0) and `RoundAwayFromZero` (see Decisions below).
+- `Providers/GlobalAirProvider.cs` — implements `IFlightProvider`. `base = routeFare ×
+  cabinMultiplier`; `pricePerPassenger = RouteFareTable.RoundAwayFromZero(base × 1.15m)`;
+  `Task.Delay(400, ct)` simulated latency; 2 offers per search with deterministic flight
+  numbers/times seeded from `HashCode.Combine(origin, destination, date, cabinClass,
+  providerName)`.
+- `Providers/BudgetWingsProvider.cs` — implements `IFlightProvider`. Same base computation;
+  `pricePerPassenger = Max(RoundAwayFromZero(base × 0.90m), 29.99m)`; returns `[]` for First
+  Class or long-haul routes before even computing a price; same latency and determinism
+  approach as GlobalAir.
+- `Caching/MemoryOfferCache.cs` — implements `ISearchOfferCache` over `IMemoryCache`, 10-minute
+  TTL, keyed by `"search-offers:{searchId}"`.
+- `DependencyInjection.cs` — `AddInfrastructure(this IServiceCollection)` registers
+  `IAirportCatalog`, `ISearchOfferCache`, and both `IFlightProvider` implementations as
+  singletons, plus `AddMemoryCache()`. **`IBookingStore` is intentionally not registered yet**
+  (see Decisions below).
+
+Two NuGet packages were added to `SkyRoute.Infrastructure.csproj`:
+`Microsoft.Extensions.Caching.Memory` and `Microsoft.Extensions.DependencyInjection.Abstractions`
+— required because Infrastructure is a plain class library (`Microsoft.NET.Sdk`), not a Web SDK
+project, so it does not inherit `IMemoryCache`/`IServiceCollection` from a shared framework the
+way `SkyRoute.WebApi` does. Mechanical requirement of already-approved tasks, not a new
+architectural decision.
+
+### Decisions made during implementation
+
+Three points required a stop-and-ask rather than a silent judgment call, per this session's
+explicit instruction to report ambiguity instead of inventing architecture:
+
+1. **`RouteFareTable` base-fare and duration values are invented mock data.** No document
+   (`challenge.md`, `docs/02-revision.md`, `docs/03-execution-plan.md`) specifies concrete
+   dollar amounts or durations per airport pair — only the pricing *formulas* and the
+   requirement that mocks be "realistic" (`challenge.md` §2). Proposed values (180–420 USD by
+   distance, with `JFK↔ORD = 30.00` deliberately low so BudgetWings' $29.99 floor actually
+   engages) were presented to the user before writing any code and approved as-is. To be
+   documented as a "mock data assumption" in the README (Phase 10).
+2. **A synthetic away-from-zero rounding test, not an end-to-end midpoint case.** The plan
+   requires testing "an away-from-zero midpoint case (e.g. a base fare that rounds differently
+   under banker's vs away-from-zero rounding)." Mathematically verified that none of the 14
+   approved `RouteFareTable` values, combined with the three cabin multipliers (1.0/2.5/4.0),
+   produce a true midpoint (a value ending in exactly `...X5` with an even preceding digit) —
+   any integer-dollar base fare times those multipliers times 1.15 never lands on one. Two
+   alternatives (adding a 7th airport just for this test; changing an already-approved fare)
+   were proposed and rejected by the user in favor of a third: extract the rounding call into
+   an `internal static RouteFareTable.RoundAwayFromZero(decimal)` method, unit-tested directly
+   with synthetic values (`2.345m → 2.35m`, `1.005m → 1.01m`) independent of the real route
+   data. This required adding `<InternalsVisibleTo Include="SkyRoute.Tests" />` to
+   `SkyRoute.Infrastructure.csproj` — the standard .NET mechanism for testing `internal` types,
+   not a new architectural layer. A test with a misleading name
+   (`SearchAsync_RoundsAwayFromZero_NotBankersRounding`, which did not actually exercise a
+   midpoint) was caught and renamed to `SearchAsync_RoundsToTwoDecimals_ForTheApprovedRoute
+   FareTable` before being left in the suite.
+3. **`IBookingStore` is not registered in `DependencyInjection.cs` yet.** Phase 4's task 6 says
+   `AddInfrastructure` should register "`IBookingStore` (stub for now, filled in Phase 8)", but
+   Phase 4's file list does not include any `IBookingStore` implementation file, and Phase 8
+   explicitly owns `Infrastructure/Data/InMemoryBookingStore.cs`. Registering it now would have
+   required inventing an unlisted stub class. Left unregistered, with an inline comment
+   explaining why, to be added in Phase 8 alongside the real implementation.
+
+No other decisions were made. No conflict with `challenge.md` blocked this phase.
+
+### Deviations from the plan
+
+None in the final state. The one file not explicitly listed in Phase 4 —
+`RouteFareTableRoundingTests.cs` — is a test file (Phase 4's own "Relevant tests" section
+requires the midpoint-rounding case; the file is the mechanism to satisfy that requirement
+after the approved alternative in Decision #2 above), not a production/architecture file, and
+was added after asking the user how to resolve the missing-midpoint-case problem.
+
+### Files added
+
+```
+backend/SkyRoute.Infrastructure/Data/AirportCatalog.cs
+backend/SkyRoute.Infrastructure/Providers/RouteFareTable.cs
+backend/SkyRoute.Infrastructure/Providers/GlobalAirProvider.cs
+backend/SkyRoute.Infrastructure/Providers/BudgetWingsProvider.cs
+backend/SkyRoute.Infrastructure/Caching/MemoryOfferCache.cs
+backend/SkyRoute.Infrastructure/DependencyInjection.cs
+backend/SkyRoute.Infrastructure/Class1.cs                        (deleted — template placeholder,
+                                                                    superseded by real files above)
+backend/SkyRoute.Infrastructure/SkyRoute.Infrastructure.csproj    (modified — added
+  Microsoft.Extensions.Caching.Memory, Microsoft.Extensions.DependencyInjection.Abstractions,
+  InternalsVisibleTo for SkyRoute.Tests)
+backend/SkyRoute.Tests/Infrastructure/GlobalAirProviderTests.cs
+backend/SkyRoute.Tests/Infrastructure/BudgetWingsProviderTests.cs
+backend/SkyRoute.Tests/Infrastructure/RouteFareTableRoundingTests.cs
+```
+
+No files outside `backend/SkyRoute.Infrastructure/` and `backend/SkyRoute.Tests/` were
+modified.
+
+### Validation performed
+
+All four test areas named in `docs/03-execution-plan.md` Phase 4 are covered:
+
+- **GlobalAir pricing** (`GlobalAirProviderTests.cs`, 4 tests): +15% surcharge, 2-decimal
+  rounding, cabin multiplier applied before the provider rule (Economy vs Business price
+  differs correctly), uncovered route (`ORD↔FCO`) returns an empty list.
+- **BudgetWings pricing** (`BudgetWingsProviderTests.cs`, 7 tests): -10% discount, the $29.99
+  floor engaging on the cheap route (`JFK↔ORD`), discount computed from the base fare only
+  (explicitly asserting the double-discount value `145.80` is NOT produced), cabin multiplier
+  applied before the provider rule, empty list for First Class, empty list for long-haul
+  (`JFK↔LHR`), empty list for the uncovered route.
+- **Away-from-zero midpoint rounding** (`RouteFareTableRoundingTests.cs`, 5 tests): synthetic
+  values proving `RoundAwayFromZero` differs from banker's rounding on a true midpoint
+  (`2.345m`), plus two additional midpoint cases and a non-midpoint sanity check.
+
+| Check | Command | Result |
+|---|---|---|
+| Backend build | `dotnet build backend/SkyRoute.slnx` | **Build succeeded**, 0 errors, 2 warnings (pre-existing NU1510, unrelated to this phase) ✅ |
+| Unit tests | `dotnet test backend/SkyRoute.slnx` | **Passed! 31/31**, 0 failed (24 from Phases 2–3 + 7 new BudgetWings tests; GlobalAir's 4 and the rounding suite's 5 were added and verified incrementally before BudgetWings) ✅ |
+
+All Definition of Done criteria from `docs/03-execution-plan.md` Phase 4 are met: both
+providers return decimal-correct, rounded prices for every covered combination of the 6
+airports × 3 cabin classes; the `ORD↔FCO` route returns nothing from either provider;
+`dotnet test` passes for all pricing tests written so far.
+
+### Time
+
+Plan estimate: 35 min. Actual: longer than estimated, primarily due to the two stop-and-ask
+points (RouteFareTable mock values; the missing-midpoint-case problem and its two rejected
+alternatives before landing on the approved `RouteFareTable.RoundAwayFromZero` extraction).
+Neither delay was caused by the plan being wrong — both were genuine gaps the plan left open
+(concrete mock data; whether the approved route set happens to produce a midpoint case) that
+warranted a real decision rather than a silent assumption.
+
