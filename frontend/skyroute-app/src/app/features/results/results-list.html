@@ -1,0 +1,49 @@
+<section class="results-shell">
+  <h1>Search results</h1>
+
+  @if (searchState.loading()) {
+    <p class="status" role="status">Loading flights...</p>
+  }
+
+  @if (!searchState.loading()) {
+    <app-sort-toolbar />
+
+    @if (searchState.sortedResults().length === 0) {
+      <app-empty-state />
+    } @else {
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Provider</th>
+              <th>Flight #</th>
+              <th>Departure</th>
+              <th>Arrival</th>
+              <th>Duration</th>
+              <th>Cabin</th>
+              <th>Price</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (flight of searchState.sortedResults(); track flight.id) {
+              <tr (click)="openBooking(flight.id)" tabindex="0" (keydown.enter)="openBooking(flight.id)">
+                <td>{{ flight.provider }}</td>
+                <td>{{ flight.flightNumber }}</td>
+                <td>{{ flight.departureTime | date: 'medium' }}</td>
+                <td>{{ flight.arrivalTime | date: 'medium' }}</td>
+                <td>{{ flight.durationMinutes | duration }}</td>
+                <td>{{ flight.cabinClass }}</td>
+                <td>
+                  <div class="price-total">USD {{ flight.totalPrice | number: '1.2-2' }}</div>
+                  <div class="price-secondary">
+                    USD {{ flight.pricePerPassenger | number: '1.2-2' }} per person
+                  </div>
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    }
+  }
+</section>

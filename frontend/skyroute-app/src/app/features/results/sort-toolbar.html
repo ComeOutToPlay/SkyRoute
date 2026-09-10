@@ -1,0 +1,11 @@
+<label class="toolbar">
+  Sort by
+  <select
+    [value]="searchState.sortMode()"
+    (change)="setSortMode($any($event.target).value)"
+  >
+    @for (mode of modes; track mode.value) {
+      <option [value]="mode.value">{{ mode.label }}</option>
+    }
+  </select>
+</label>

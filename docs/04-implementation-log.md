@@ -659,3 +659,141 @@ Plan estimate: 30 min. Actual: longer than estimated, primarily due to diagnosin
 cause). The delay was a genuine framework defect surfaced by testing, not a plan or
 architecture issue.
 
+---
+
+## Phase 6 — Angular search UI and results
+
+**Status:** ✅ Complete · **Commit:** not committed yet (implemented and validated in working tree)
+
+### What was implemented
+
+All Phase 6 scope items from `docs/03-execution-plan.md` were implemented in
+`frontend/skyroute-app/src/app/` and wired to the existing Phase 5 backend endpoints only
+(`GET /api/airports`, `POST /api/flights/search`):
+
+- **Environment config**: `environments/environment.ts` created with
+  `apiUrl: 'http://localhost:5169/api'`, matching `SkyRoute.WebApi` launch settings.
+- **Models**: `Airport`, `SearchRequest`, `FlightOfferView`, `SearchResponse` created and
+  aligned to backend DTO shape, including `isInternational` at the search-response root.
+- **Airport service** (`core/services/airport.service.ts`): calls `GET /airports` via
+  `HttpClient`, caches the list in a signal, and reuses a shared in-flight observable to avoid
+  duplicate concurrent calls.
+- **Flight service** (`core/services/flight.service.ts`): calls `POST /flights/search` and
+  returns typed `SearchResponse`.
+- **Search state** (`core/state/search-state.ts`): signal-based state holder with
+  `airports`, `criteria`, `searchId`, `results`, `isInternational`, `sortMode`,
+  `selectedOfferId`, `loading`, `error`; includes `computed()` `sortedResults` and a pure
+  `sortFlightOffers(...)` function supporting all four required sort modes.
+- **Search form feature** (`features/search/search-form.ts` + `.html` + `.scss`): reactive
+  form with origin/destination selects, departure date, passengers, cabin class; validators for
+  required fields, passenger range 1-9, and a form-level `origin !== destination` rule;
+  submits to `FlightService.search()`, updates `SearchState`, and navigates to `/results`.
+- **Results empty state** (`features/results/empty-state.ts`): renders when there are no
+  sorted results.
+- **Sort toolbar** (`features/results/sort-toolbar.ts` + `.html` + `.scss`): client-side
+  control for Price ↑, Price ↓, Duration, Departure time; updates only `SearchState.sortMode`
+  (no HTTP call, no navigation side-effects).
+- **Results list** (`features/results/results-list.ts` + `.html` + `.scss`): table bound to
+  `sortedResults()`, showing provider, flight number, departure, arrival, duration, cabin class,
+  and the required pricing presentation (total as primary, per-person as secondary muted text);
+  shows loading status from state; row selection sets `selectedOfferId` and navigates to
+  `/booking/:flightId`.
+- **Duration pipe** (`shared/pipes/duration.ts`): formats duration minutes to `Xh Ym`.
+- **Routing update** (`app.routes.ts`): `/search`, `/results`, `/booking/:flightId`
+  (placeholder component for booking until Phase 7), plus default redirect `/ -> /search`.
+
+To support the Phase 6 routed flow, the root shell was simplified to router-outlet rendering and
+HttpClient provision was added:
+
+- `app.html` replaced with `<router-outlet />`.
+- `app.ts` simplified (removed template title signal used only by Angular scaffold screen).
+- `app.config.ts` updated with `provideHttpClient()`.
+- `app.spec.ts` updated to remove the scaffold-title assertion that no longer applies.
+
+### Decisions made during implementation
+
+1. **Plan path ambiguity handled literally.** The Phase 6 section says files are under
+   `src/app/` and includes `environments/environment.ts`. To avoid introducing a new
+   interpretation, the environment file was placed at `src/app/environments/environment.ts`
+   (not `src/environments/`).
+2. **Sort UI implemented as `<select>`.** The plan allows "buttons/select"; select was used as
+   the minimal MVP control while preserving the required four client-side sort modes.
+3. **Results route entered immediately on submit with loading state.** The form navigates to
+   `/results` right after submit and keeps `loading=true` until the HTTP response resolves,
+   ensuring a visible loading indicator while search is in progress.
+
+No architecture changes were introduced, and no additional infrastructure/services were added.
+
+### Deviations from the plan
+
+None in functional scope. All required Phase 6 capabilities were implemented.
+
+Minor implementation delta (non-scope): two supporting app-shell updates (`app.config.ts` for
+`provideHttpClient`, and root template simplification) were required so the new Phase 6 routes
+and services can run in the scaffolded Angular app.
+
+### Files added/changed
+
+```
+frontend/skyroute-app/src/app/environments/environment.ts                               (new)
+frontend/skyroute-app/src/app/core/models/airport.ts                                    (new)
+frontend/skyroute-app/src/app/core/models/search-request.ts                             (new)
+frontend/skyroute-app/src/app/core/models/search-response.ts                            (new)
+frontend/skyroute-app/src/app/core/services/airport.service.ts                          (new)
+frontend/skyroute-app/src/app/core/services/flight.service.ts                           (new)
+frontend/skyroute-app/src/app/core/state/search-state.ts                                (new)
+frontend/skyroute-app/src/app/features/search/search-form.ts                            (new)
+frontend/skyroute-app/src/app/features/search/search-form.html                          (new)
+frontend/skyroute-app/src/app/features/search/search-form.scss                          (new)
+frontend/skyroute-app/src/app/features/results/empty-state.ts                           (new)
+frontend/skyroute-app/src/app/features/results/sort-toolbar.ts                          (new)
+frontend/skyroute-app/src/app/features/results/sort-toolbar.html                        (new)
+frontend/skyroute-app/src/app/features/results/sort-toolbar.scss                        (new)
+frontend/skyroute-app/src/app/features/results/results-list.ts                          (new)
+frontend/skyroute-app/src/app/features/results/results-list.html                        (new)
+frontend/skyroute-app/src/app/features/results/results-list.scss                        (new)
+frontend/skyroute-app/src/app/shared/pipes/duration.ts                                  (new)
+frontend/skyroute-app/src/app/features/results/sort.spec.ts                             (new)
+frontend/skyroute-app/src/app/features/search/search-form.spec.ts                       (new)
+frontend/skyroute-app/src/app/app.routes.ts                                             (modified)
+frontend/skyroute-app/src/app/app.config.ts                                             (modified)
+frontend/skyroute-app/src/app/app.ts                                                    (modified)
+frontend/skyroute-app/src/app/app.html                                                  (modified)
+frontend/skyroute-app/src/app/app.spec.ts                                               (modified)
+```
+
+No files outside `frontend/skyroute-app/src/app/` were modified for this phase.
+
+### Validation performed
+
+Relevant tests requested in Phase 6 were added and run:
+
+- `features/results/sort.spec.ts` (Vitest): verifies ordering for all four sort modes and
+  asserts purity (source array is not mutated).
+- `features/search/search-form.spec.ts` (Vitest): verifies
+  `origin === destination` is rejected and passenger counts outside 1-9 are rejected.
+
+One strict-typing issue surfaced during the first test-target build pass and was fixed:
+
+- `search-form.ts` attempted `setSelectedOfferId(null)` while the state API accepted `string`.
+  Resolved by adding `clearSelectedOfferId()` in `SearchState` and using that method in submit.
+
+| Check | Command | Result |
+|---|---|---|
+| Frontend tests (first run) | Angular test target | Failed with TS2345 in `search-form.ts` (null argument), fixed immediately ✅ |
+| Frontend tests (rerun) | Angular test target | **Passed! 3 test files, 8 tests, 0 failed** ✅ |
+| Frontend build | Angular build target | **Build succeeded**, bundle emitted to `dist/skyroute-app` ✅ |
+
+Definition-of-done checks covered by implemented behavior and validation:
+
+- Search form fields and validators present and enforced.
+- Loading state displayed during in-flight search.
+- Results table includes required columns and total-vs-per-person price distinction.
+- Client-side sorting implemented for all four modes without service calls.
+- Empty-state component implemented for zero-result searches.
+
+### Time
+
+Plan estimate: 40 min. Actual: slightly above estimate due to one compile-time strict typing fix
+found during milestone validation (`TS2345`) and immediate retest/build verification.
+

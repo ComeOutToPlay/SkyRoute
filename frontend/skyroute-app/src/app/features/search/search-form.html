@@ -1,0 +1,60 @@
+<section class="search-shell">
+  <h1>Find Flights</h1>
+
+  @if (searchState.error()) {
+    <p class="error" role="alert">{{ searchState.error() }}</p>
+  }
+
+  <form [formGroup]="form" (ngSubmit)="submit()" novalidate>
+    <div class="grid">
+      <label>
+        Origin
+        <select formControlName="origin">
+          <option value="">Select origin</option>
+          @for (airport of searchState.airports(); track airport.code) {
+            <option [value]="airport.code">{{ airport.code }} - {{ airport.city }}</option>
+          }
+        </select>
+      </label>
+
+      <label>
+        Destination
+        <select formControlName="destination">
+          <option value="">Select destination</option>
+          @for (airport of searchState.airports(); track airport.code) {
+            <option [value]="airport.code">{{ airport.code }} - {{ airport.city }}</option>
+          }
+        </select>
+      </label>
+
+      <label>
+        Departure date
+        <input type="date" formControlName="departureDate" />
+      </label>
+
+      <label>
+        Passengers
+        <input type="number" min="1" max="9" formControlName="passengers" />
+      </label>
+
+      <label>
+        Cabin class
+        <select formControlName="cabinClass">
+          @for (cabinClass of cabinClasses; track cabinClass) {
+            <option [value]="cabinClass">{{ cabinClass }}</option>
+          }
+        </select>
+      </label>
+    </div>
+
+    @if (form.hasError('sameAirport') && (form.touched || form.dirty)) {
+      <p class="error" role="alert">Origin and destination must be different airports.</p>
+    }
+
+    @if (form.controls.passengers.invalid && (form.controls.passengers.touched || form.controls.passengers.dirty)) {
+      <p class="error" role="alert">Passenger count must be between 1 and 9.</p>
+    }
+
+    <button type="submit">Search flights</button>
+  </form>
+</section>

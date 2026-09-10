@@ -34,6 +34,8 @@ public sealed class GlobalAirProvider : IFlightProvider
             {
                 var departureHour = rng.Next(6, 21); // 06:00-20:59 departure window
                 var departureTime = criteria.DepartureDate.ToDateTime(new TimeOnly(departureHour, 0));
+                var offerDurationMinutes = durationMinutes + (index * 10);
+
                 return new FlightOffer
                 {
                     Provider = ProviderName,
@@ -41,8 +43,8 @@ public sealed class GlobalAirProvider : IFlightProvider
                     Origin = criteria.Origin.Code,
                     Destination = criteria.Destination.Code,
                     DepartureTime = departureTime,
-                    ArrivalTime = departureTime.AddMinutes(durationMinutes),
-                    DurationMinutes = durationMinutes,
+                    ArrivalTime = departureTime.AddMinutes(offerDurationMinutes),
+                    DurationMinutes = offerDurationMinutes,
                     CabinClass = criteria.CabinClass,
                     PricePerPassenger = pricePerPassenger
                 };
