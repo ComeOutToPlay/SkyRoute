@@ -797,3 +797,135 @@ Definition-of-done checks covered by implemented behavior and validation:
 Plan estimate: 40 min. Actual: slightly above estimate due to one compile-time strict typing fix
 found during milestone validation (`TS2345`) and immediate retest/build verification.
 
+---
+
+## Phase 7 — Booking flow (frontend)
+
+**Status:** ✅ Complete · **Commit:** not committed yet (implemented and validated in working tree)
+
+### What was implemented
+
+All Phase 7 frontend scope items from `docs/03-execution-plan.md` were implemented under
+`frontend/skyroute-app/src/app/` without adding architectural layers:
+
+- **Booking models** (`core/models/booking.ts`):
+  `PassengerFormValue`, `BookingRequest`, `BookingResponse`, mirroring the agreed backend
+  contract shape (`searchId`, `flightId`, `passengers[]`; no client-sent price or
+  `isInternational`).
+- **Booking API service** (`core/services/booking.service.ts`):
+  `HttpClient.post<BookingResponse>` to `POST /api/bookings` with typed error mapping via
+  `BookingApiError`, including `isOfferExpired` when HTTP status is `409`.
+- **Document validator factory** (`shared/validators/document-number.ts`):
+  client-side UX validator using the exact backend regexes:
+  passport `^[A-Z]{1,2}[0-9]{6,7}$`, national ID `^[0-9]{9}$`, with trim/uppercase normalization.
+- **Route guard** (`core/guards/has-selected-offer.guard.ts`):
+  blocks `/booking/:flightId` when neither `selectedOfferId` nor `searchId` exists in
+  `SearchState`, redirecting to `/search`.
+- **Booking summary component** (`features/booking/booking-summary.ts` + `.html` + `.scss`):
+  displays route, provider, flight number, departure, arrival, duration, and cabin class from
+  selected offer and current search criteria.
+- **Passenger form component** (`features/booking/passenger-form.ts` + `.html` + `.scss`):
+  - creates a `FormArray` with one row per passenger based on `SearchState.criteria().passengers`
+  - fields per passenger: full name, email, document number
+  - dynamic label switches between **Passport Number** and **National ID** from
+    `SearchState.isInternational()`
+  - document validator switches rule by route type via `documentNumberValidator(...)`
+  - price breakdown uses state-held values (per-person, count, total) without recomputing from
+    user input
+  - confirm button posts `{ searchId, flightId, passengers }` to backend
+  - on `409`, shows "fares have changed" banner with button back to `/search`
+- **Confirmation component** (`features/booking/confirmation.ts` + `.html` + `.scss`):
+  renders `bookingReference`, flight summary and total price using the successful booking
+  response passed in navigation state.
+- **Routing update** (`app.routes.ts`):
+  removed Phase 6 booking placeholder and wired:
+  - `/booking/:flightId` -> `PassengerFormComponent` with `canActivate: [hasSelectedOfferGuard]`
+  - `/booking/confirmation/:bookingReference` -> `ConfirmationComponent`
+
+To satisfy the Phase 7 UX requirement "back to search keeps previous criteria pre-filled", the
+search form now restores criteria from `SearchState` when the component is created:
+
+- `features/search/search-form.ts` reads `searchState.criteria()` and `patchValue(...)` on init.
+
+### Decisions made during implementation
+
+1. **Typed booking error instead of untyped status checks in components.**
+   `BookingService` maps `HttpErrorResponse` to `BookingApiError` so the component can reliably
+   distinguish `409` (offer expired) from generic failures without spreading transport details
+   across UI code.
+2. **Guard condition accepts `selectedOfferId` or `searchId`.**
+   The guard follows the Phase 7 wording ("selectedOfferId (or searchId)") to avoid blank
+   booking screens while still protecting direct access with no search context.
+3. **Confirmation uses router navigation state for MVP.**
+   This keeps Phase 7 frontend within scope while remaining compatible with Phase 8's optional
+   `GET /api/bookings/{reference}` enhancement for hard-refresh resilience.
+
+No additional infrastructure, global stores, or backend changes were introduced in this phase.
+
+### Deviations from the plan
+
+None in scope or architecture.
+
+One implementation fix was required during validation (not a scope change):
+
+- `PassengerFormComponent` initially declared `searchState` as `private`, which broke template
+  access at build time (`TS2341`). It was changed to `protected`.
+
+### Files added/changed
+
+```
+frontend/skyroute-app/src/app/core/models/booking.ts                              (new)
+frontend/skyroute-app/src/app/core/services/booking.service.ts                    (new)
+frontend/skyroute-app/src/app/shared/validators/document-number.ts                (new)
+frontend/skyroute-app/src/app/core/guards/has-selected-offer.guard.ts             (new)
+frontend/skyroute-app/src/app/core/guards/has-selected-offer.guard.spec.ts        (new)
+frontend/skyroute-app/src/app/shared/validators/document-number.spec.ts           (new)
+frontend/skyroute-app/src/app/features/booking/booking-summary.ts                 (new)
+frontend/skyroute-app/src/app/features/booking/booking-summary.html               (new)
+frontend/skyroute-app/src/app/features/booking/booking-summary.scss               (new)
+frontend/skyroute-app/src/app/features/booking/passenger-form.ts                  (new)
+frontend/skyroute-app/src/app/features/booking/passenger-form.html                (new)
+frontend/skyroute-app/src/app/features/booking/passenger-form.scss                (new)
+frontend/skyroute-app/src/app/features/booking/confirmation.ts                    (new)
+frontend/skyroute-app/src/app/features/booking/confirmation.html                  (new)
+frontend/skyroute-app/src/app/features/booking/confirmation.scss                  (new)
+frontend/skyroute-app/src/app/app.routes.ts                                       (modified)
+frontend/skyroute-app/src/app/features/search/search-form.ts                      (modified)
+```
+
+No files outside `frontend/skyroute-app/src/app/` were modified for this phase.
+
+### Validation performed
+
+Relevant Phase 7 tests were added and executed:
+
+- `shared/validators/document-number.spec.ts`:
+  passport accept/reject, national ID accept/reject, and rule switching by `isInternational`.
+- `core/guards/has-selected-offer.guard.spec.ts`:
+  redirects to `/search` when no selected offer/search context exists.
+
+Incremental milestone runs:
+
+| Check | Command | Result |
+|---|---|---|
+| Frontend tests after Phase 7 core (service/validator/guard) | Angular test target | **Passed! 5 files, 12 tests, 0 failed** ✅ |
+| Frontend tests after booking UI + routes | Angular test target | **Passed! 5 files, 12 tests, 0 failed** ✅ |
+| Frontend build (first run after UI wiring) | Angular build target | Failed with `TS2341` (`searchState` visibility in template), fixed immediately ✅ |
+| Frontend build (rerun) | Angular build target | **Build succeeded**, bundle emitted to `dist/skyroute-app` ✅ |
+
+Definition-of-done coverage validated on frontend side:
+
+- Selecting a flight from results routes to booking UI.
+- Dynamic document label and validator switch by `isInternational`.
+- Confirm action posts expected booking payload.
+- `409` path shows "fares changed" banner and returns to pre-filled search.
+- Guard prevents blank direct access by redirecting to `/search`.
+
+Backend note: end-to-end booking confirmation depends on Phase 8 backend implementation
+(`POST /api/bookings` controller/service/store).
+
+### Time
+
+Plan estimate: 35 min. Actual: slightly above estimate due to one compile-time visibility fix
+(`TS2341`) discovered during build validation and immediate retest/rebuild.
+

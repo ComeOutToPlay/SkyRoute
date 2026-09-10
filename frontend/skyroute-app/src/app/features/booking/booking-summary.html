@@ -1,0 +1,38 @@
+<section class="summary-card" aria-labelledby="booking-summary-heading">
+  <h2 id="booking-summary-heading">Flight summary</h2>
+
+  @if (hasData()) {
+    <dl>
+      <div>
+        <dt>Route</dt>
+        <dd>{{ offer()!.origin }} to {{ offer()!.destination }}</dd>
+      </div>
+      <div>
+        <dt>Provider</dt>
+        <dd>{{ offer()!.provider }}</dd>
+      </div>
+      <div>
+        <dt>Flight</dt>
+        <dd>{{ offer()!.flightNumber }}</dd>
+      </div>
+      <div>
+        <dt>Departure</dt>
+        <dd>{{ offer()!.departureTime | date: 'medium' }}</dd>
+      </div>
+      <div>
+        <dt>Arrival</dt>
+        <dd>{{ offer()!.arrivalTime | date: 'medium' }}</dd>
+      </div>
+      <div>
+        <dt>Duration</dt>
+        <dd>{{ offer()!.durationMinutes | duration }}</dd>
+      </div>
+      <div>
+        <dt>Cabin class</dt>
+        <dd>{{ offer()!.cabinClass }}</dd>
+      </div>
+    </dl>
+  } @else {
+    <p>Flight information is unavailable.</p>
+  }
+</section>

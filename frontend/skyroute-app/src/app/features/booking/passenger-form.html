@@ -1,0 +1,65 @@
+<section class="booking-shell">
+  <h1>Complete your booking</h1>
+
+  <app-booking-summary
+    [offer]="selectedOffer()"
+    [criteria]="searchState.criteria()"
+  />
+
+  @if (offerExpired()) {
+    <div class="banner" role="alert">
+      <p>Fares have changed, please search again.</p>
+      <button type="button" (click)="backToSearch()">Back to search</button>
+    </div>
+  }
+
+  @if (error() && !offerExpired()) {
+    <p class="error" role="alert">{{ error() }}</p>
+  }
+
+  <section class="price-breakdown" aria-label="Price breakdown">
+    <h2>Price breakdown</h2>
+    <p>USD {{ selectedOffer()?.pricePerPassenger ?? 0 | number: '1.2-2' }} per person</p>
+    <p>{{ passengerCount() }} passenger(s)</p>
+    <p class="total">Total: USD {{ selectedOffer()?.totalPrice ?? 0 | number: '1.2-2' }}</p>
+  </section>
+
+  <form [formGroup]="form" (ngSubmit)="confirmBooking()" novalidate>
+    <h2>Passenger information</h2>
+
+    <div formArrayName="passengers" class="passenger-grid">
+      @for (passenger of passengerRows; track $index) {
+        <fieldset [formGroupName]="$index">
+          <legend>Passenger {{ $index + 1 }}</legend>
+
+          <label>
+            Full name
+            <input type="text" formControlName="fullName" />
+          </label>
+
+          <label>
+            Email
+            <input type="email" formControlName="email" />
+          </label>
+
+          <label>
+            {{ documentLabel() }}
+            <input type="text" formControlName="documentNumber" />
+          </label>
+
+          @if (passenger.get('documentNumber')?.errors?.['passportFormat']) {
+            <p class="error" role="alert">Passport format is invalid.</p>
+          }
+
+          @if (passenger.get('documentNumber')?.errors?.['nationalIdFormat']) {
+            <p class="error" role="alert">National ID format is invalid.</p>
+          }
+        </fieldset>
+      }
+    </div>
+
+    <button type="submit" [disabled]="isSubmitting()">
+      {{ isSubmitting() ? 'Confirming...' : 'Confirm Booking' }}
+    </button>
+  </form>
+</section>

@@ -1,0 +1,21 @@
+<section class="confirmation-shell">
+  <h1>Booking confirmed</h1>
+  <p class="reference">Reference: {{ bookingReference }}</p>
+
+  @if (booking()) {
+    <section class="card" aria-label="Booking summary">
+      <h2>Flight summary</h2>
+      <p>{{ booking()!.flightSummary.origin }} to {{ booking()!.flightSummary.destination }}</p>
+      <p>Provider: {{ booking()!.flightSummary.provider }}</p>
+      <p>Flight: {{ booking()!.flightSummary.flightNumber }}</p>
+      <p>Departure: {{ booking()!.flightSummary.departureTime | date: 'medium' }}</p>
+      <p>Arrival: {{ booking()!.flightSummary.arrivalTime | date: 'medium' }}</p>
+      <p>Duration: {{ booking()!.flightSummary.durationMinutes | duration }}</p>
+      <p>Cabin: {{ booking()!.flightSummary.cabinClass }}</p>
+      <p>Passengers: {{ booking()!.passengerCount }}</p>
+      <p>Total: {{ booking()!.currency }} {{ booking()!.totalPrice | number: '1.2-2' }}</p>
+    </section>
+  }
+
+  <a routerLink="/search">Start a new search</a>
+</section>

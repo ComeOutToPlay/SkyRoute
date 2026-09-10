@@ -55,6 +55,11 @@ export class SearchFormComponent {
   );
 
   constructor() {
+    const existingCriteria = this.searchState.criteria();
+    if (existingCriteria) {
+      this.form.patchValue(existingCriteria);
+    }
+
     this.airportService
       .loadAirports()
       .pipe(takeUntilDestroyed(this.destroyRef))
