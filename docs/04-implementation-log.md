@@ -523,3 +523,139 @@ Neither delay was caused by the plan being wrong — both were genuine gaps the 
 (concrete mock data; whether the approved route set happens to produce a midpoint case) that
 warranted a real decision rather than a silent assumption.
 
+---
+
+## Phase 5 — Search API
+
+**Status:** ✅ Complete · **Commit:** `5fa8b47` — "Phase 5: Search API (FlightSearchService
+complete, Program.cs composition, AirportsController, FlightsController,
+ProblemDetailsExceptionHandler)"
+
+### What was implemented
+
+All 5 files/changes listed in `docs/03-execution-plan.md` Phase 5 were completed:
+
+- **`FlightSearchService.SearchAsync` (completed)**: resolves `Origin`/`Destination` via
+  `IAirportCatalog.FindByCode`, throwing `ValidationException` (400) for an unknown code or for
+  `origin == destination`; builds `FlightSearchCriteria`; fans out to every registered
+  `IFlightProvider` in parallel via `Task.WhenAll`, wrapping each call in a try/catch so one
+  provider throwing contributes zero offers instead of failing the whole search; generates a
+  new `Guid` `searchId` and stores `(criteria, offers)` in `ISearchOfferCache`; maps to
+  `SearchResponseDto` with `Currency = "USD"` and `IsInternational = criteria.IsInternational`.
+- **`Program.cs`**: CORS policy `AllowLocalAngular` restricted to `http://localhost:4200`,
+  applied before `MapControllers()`; `AddControllers().AddJsonOptions(...
+  JsonStringEnumConverter())`; `AddProblemDetails()` + `AddExceptionHandler
+  <ProblemDetailsExceptionHandler>()`; `AddInfrastructure()` (Phase 4's extension method);
+  `FlightSearchService`/`BookingService` registered as concrete `AddScoped` classes (no
+  interface — confirmed decision from `docs/02-revision.md`); HTTPS redirection skipped in
+  Development to avoid dev-certificate friction.
+- **`Controllers/AirportsController.cs`** — `GET /api/airports` → `IAirportCatalog.GetAll()`
+  mapped to `AirportDto[]`.
+- **`Controllers/FlightsController.cs`** — `POST /api/flights/search`, delegating to
+  `FlightSearchService`; passenger-count validation (1–9, `challenge.md` §3.1) declared on
+  `FlightSearchRequestDto` via `[Range(1, 9)]` and enforced automatically by `[ApiController]`,
+  not duplicated in the controller body.
+- **`Middleware/ProblemDetailsExceptionHandler.cs`** — implements `IExceptionHandler`; maps
+  `ValidationException` → 400 (with the field→errors dictionary as a ProblemDetails
+  extension), `FlightNotFoundException` → 404, `OfferExpiredException` → 409, anything else →
+  500 with a generic title (no stack trace leaked to the client).
+
+The two template placeholder files left over from Phase 1 (`WeatherForecastController.cs`,
+`WeatherForecast.cs`) were deleted, now that real controllers exist in their place.
+
+### Decisions made during implementation
+
+No architectural decisions were required — every task in this phase had a concrete, unambiguous
+specification. One **implementation bug** was found and fixed during the manual verification
+step (task 6), documented here rather than under "Decisions" because it was a code defect, not
+an interpretation choice:
+
+- **`[property: Range(1, 9)]` on a record primary-constructor parameter throws at request-
+  validation time on ASP.NET Core 10.** Manually testing `POST /api/flights/search` with a
+  valid JFK→LHR payload returned an unexpected `500`. Temporarily surfacing the exception
+  message (reverted immediately after diagnosis) revealed:
+  `InvalidOperationException: Record type 'FlightSearchRequestDto' has validation metadata
+  defined on property 'Passengers' that will be ignored. 'Passengers' is a parameter in the
+  record primary constructor and validation metadata must be associated with the constructor
+  parameter.` MVC's validator does not support `[property: ...]`-targeted attributes on a
+  record's primary constructor parameters — the attribute must target the parameter directly.
+  Fixed by changing `[property: Range(1, 9)] int Passengers` to `[Range(1, 9)] int Passengers`
+  in `FlightSearchRequestDto`. Re-verified all four manual test scenarios afterward; all
+  passed. This is a framework behaviour quirk, not a plan ambiguity — no report-and-stop was
+  needed because the fix is unambiguous and does not touch architecture, contracts, or any
+  approved decision.
+
+No conflict with `challenge.md` or `docs/02-revision.md` blocked this phase.
+
+### Deviations from the plan
+
+None. All 5 files/changes match the plan's specification; the `[Range]` attribute placement
+was an implementation detail (bug fix) within the already-approved validation requirement, not
+a deviation from what the plan asked for.
+
+### Files added/changed
+
+```
+backend/SkyRoute.Application/Services/FlightSearchService.cs   (completed)
+backend/SkyRoute.Application/Dtos/FlightSearchRequestDto.cs    (added [Required]/[Range]
+                                                                  validation attributes)
+backend/SkyRoute.WebApi/Program.cs                              (modified — full composition)
+backend/SkyRoute.WebApi/Controllers/AirportsController.cs       (new)
+backend/SkyRoute.WebApi/Controllers/FlightsController.cs        (new)
+backend/SkyRoute.WebApi/Middleware/ProblemDetailsExceptionHandler.cs   (new)
+backend/SkyRoute.WebApi/Controllers/WeatherForecastController.cs   (deleted — template
+                                                                      placeholder)
+backend/SkyRoute.WebApi/WeatherForecast.cs                      (deleted — template placeholder)
+backend/SkyRoute.Tests/Application/FlightSearchServiceTests.cs  (new — see Validation below)
+```
+
+No files outside `backend/SkyRoute.Application/`, `backend/SkyRoute.WebApi/`, and
+`backend/SkyRoute.Tests/` were modified.
+
+### Validation performed
+
+All four test areas named in `docs/03-execution-plan.md` Phase 5 are covered in
+`FlightSearchServiceTests.cs` (5 tests, using fakes for `IAirportCatalog`, `IFlightProvider`,
+`ISearchOfferCache`):
+
+- Aggregation: `totalPrice = pricePerPassenger × passengerCount`, verified with a 3-passenger
+  search.
+- One provider throwing (`ThrowingProvider`) does not fail the whole search — the other
+  provider's offer is still returned.
+- Zero-result search (no providers registered) returns an empty `Flights` list, not an error.
+- Unknown airport code throws `ValidationException` (mapped to 400 by the middleware).
+- `IsInternational` is `true` for JFK→LHR and `false` for JFK→LAX in the response, in a single
+  test asserting both directions.
+
+Beyond the automated tests, task 6's manual curl verification was performed against a running
+instance of the API (`dotnet run`, port 5215):
+
+| Scenario | Result |
+|---|---|
+| `POST /api/flights/search` JFK→LHR (international) | 200 OK; `isInternational: true`; only GlobalAir offers (BudgetWings correctly absent — long-haul route); `totalPrice = pricePerPassenger × 2` verified numerically |
+| `POST /api/flights/search` JFK→LAX (domestic) | 200 OK; `isInternational: false`; 2 GlobalAir offers (207.00) + 2 BudgetWings offers (162.00), matching Phase 4's unit-tested values exactly |
+| `POST /api/flights/search` ORD→FCO (uncovered route) | 200 OK; `flights: []` — not an error |
+| `POST /api/flights/search` JFK→ZZZ (unknown airport) | 400 ProblemDetails with a field-specific error (`"Destination": ["Unknown airport code: 'ZZZ'."]`) |
+| `GET /api/airports` | 200 OK, 6 airports |
+| CORS preflight (`OPTIONS`, `Origin: http://localhost:4200`) | 204 No Content; `Access-Control-Allow-Origin: http://localhost:4200` present |
+
+| Check | Command | Result |
+|---|---|---|
+| Backend build | `dotnet build backend/SkyRoute.slnx` | **Build succeeded**, 0 errors, 2 warnings (pre-existing NU1510, unrelated to this phase) ✅ |
+| Unit tests | `dotnet test backend/SkyRoute.slnx` | **Passed! 36/36**, 0 failed (31 from Phases 2–4 + 5 new) ✅ |
+| Manual verification | curl against a running `dotnet run` instance | All 6 scenarios above returned the expected status code and body ✅ |
+
+All Definition of Done criteria from `docs/03-execution-plan.md` Phase 5 are met:
+`POST /api/flights/search` returns a correct, schema-matching JSON body for both a domestic and
+an international route, and an empty array for the uncovered route; `GET /api/airports` returns
+all 6 airports; all Phase 5 tests pass; CORS allows a request from `http://localhost:4200`
+(verified directly with a preflight request, ahead of Phase 6 as the plan anticipated).
+
+### Time
+
+Plan estimate: 30 min. Actual: longer than estimated, primarily due to diagnosing the
+`[property: Range]`/record-primary-constructor validation bug during manual verification
+(temporary debug logging added and removed, server restarted several times to isolate the
+cause). The delay was a genuine framework defect surfaced by testing, not a plan or
+architecture issue.
+
