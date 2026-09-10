@@ -16,18 +16,13 @@ public static class DependencyInjection
 
         services.AddSingleton<IAirportCatalog, AirportCatalog>();
         services.AddSingleton<ISearchOfferCache, MemoryOfferCache>();
+        services.AddSingleton<IBookingStore, InMemoryBookingStore>();
 
         // IEnumerable<IFlightProvider> — onboarding a third provider is one more registration
         // line here, no other code changes, per challenge.md §2 ("onboard additional
         // providers") and docs/03-execution-plan.md's architecture baseline.
         services.AddSingleton<IFlightProvider, GlobalAirProvider>();
         services.AddSingleton<IFlightProvider, BudgetWingsProvider>();
-
-        // IBookingStore is intentionally NOT registered here yet: its only implementation,
-        // InMemoryBookingStore, is a Phase 8 file (docs/03-execution-plan.md Phase 8, task 1)
-        // and does not exist in this phase. Registering it now would require inventing a stub
-        // class not listed in Phase 4's file list. Added in Phase 8 alongside the real
-        // implementation.
 
         return services;
     }

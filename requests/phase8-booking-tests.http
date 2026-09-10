@@ -1,0 +1,167 @@
+@baseUrl = http://localhost:5169
+
+### 0) Quick health check - OpenAPI JSON (optional)
+# Expected: 200 OK with OpenAPI JSON document
+GET {{baseUrl}}/openapi/v1.json
+
+### 1) International search (source of searchId + flightId)
+# @name searchIntl
+# Expected: 200 OK, isInternational=true, flights with at least 1 item
+POST {{baseUrl}}/api/flights/search
+Content-Type: application/json
+
+{
+  "origin": "JFK",
+  "destination": "LHR",
+  "departureDate": "2025-12-01",
+  "passengers": 1,
+  "cabinClass": "Economy"
+}
+
+### 2) Successful international booking (valid passport)
+# @name bookingIntlOk
+# Expected: 200 OK, bookingReference like SR-XXXXXX, status=Confirmed
+POST {{baseUrl}}/api/bookings
+Content-Type: application/json
+
+{
+  "searchId": "{{searchIntl.response.body.$.searchId}}",
+  "flightId": "{{searchIntl.response.body.$.flights[0].id}}",
+  "passengers": [
+    {
+      "fullName": "Jane Doe",
+      "email": "jane@example.com",
+      "documentNumber": "X1234567"
+    }
+  ]
+}
+
+### 3) International booking with invalid document
+# Expected: 400 Bad Request, errors.passengers[0].documentNumber present
+POST {{baseUrl}}/api/bookings
+Content-Type: application/json
+
+{
+  "searchId": "{{searchIntl.response.body.$.searchId}}",
+  "flightId": "{{searchIntl.response.body.$.flights[0].id}}",
+  "passengers": [
+    {
+      "fullName": "Jane Doe",
+      "email": "jane@example.com",
+      "documentNumber": "123456789"
+    }
+  ]
+}
+
+### 4) Domestic search (source for national ID validation)
+# @name searchDomestic
+# Expected: 200 OK, isInternational=false
+POST {{baseUrl}}/api/flights/search
+Content-Type: application/json
+
+{
+  "origin": "JFK",
+  "destination": "LAX",
+  "departureDate": "2025-12-01",
+  "passengers": 1,
+  "cabinClass": "Economy"
+}
+
+### 5) Successful domestic booking (valid national ID)
+# Expected: 200 OK, status=Confirmed
+POST {{baseUrl}}/api/bookings
+Content-Type: application/json
+
+{
+  "searchId": "{{searchDomestic.response.body.$.searchId}}",
+  "flightId": "{{searchDomestic.response.body.$.flights[0].id}}",
+  "passengers": [
+    {
+      "fullName": "John Roe",
+      "email": "john@example.com",
+      "documentNumber": "123456789"
+    }
+  ]
+}
+
+### 6) Domestic booking with passport (should fail)
+# Expected: 400 Bad Request, errors.passengers[0].documentNumber present
+POST {{baseUrl}}/api/bookings
+Content-Type: application/json
+
+{
+  "searchId": "{{searchDomestic.response.body.$.searchId}}",
+  "flightId": "{{searchDomestic.response.body.$.flights[0].id}}",
+  "passengers": [
+    {
+      "fullName": "John Roe",
+      "email": "john@example.com",
+      "documentNumber": "X1234567"
+    }
+  ]
+}
+
+### 7) Unknown or expired searchId
+# Expected: 409 Conflict
+POST {{baseUrl}}/api/bookings
+Content-Type: application/json
+
+{
+  "searchId": "11111111-1111-1111-1111-111111111111",
+  "flightId": "{{searchIntl.response.body.$.flights[0].id}}",
+  "passengers": [
+    {
+      "fullName": "Jane Doe",
+      "email": "jane@example.com",
+      "documentNumber": "X1234567"
+    }
+  ]
+}
+
+### 8) flightId does not belong to the search
+# Expected: 404 Not Found
+POST {{baseUrl}}/api/bookings
+Content-Type: application/json
+
+{
+  "searchId": "{{searchIntl.response.body.$.searchId}}",
+  "flightId": "globalair-NOPE-20251201-Economy",
+  "passengers": [
+    {
+      "fullName": "Jane Doe",
+      "email": "jane@example.com",
+      "documentNumber": "X1234567"
+    }
+  ]
+}
+
+### 9) Passenger count mismatch setup
+# @name searchTwoPassengers
+# Expected: 200 OK
+POST {{baseUrl}}/api/flights/search
+Content-Type: application/json
+
+{
+  "origin": "JFK",
+  "destination": "LHR",
+  "departureDate": "2025-12-01",
+  "passengers": 2,
+  "cabinClass": "Economy"
+}
+
+### 10) Booking with fewer passengers than searched
+# Expected: 400 Bad Request for passenger count mismatch
+POST {{baseUrl}}/api/bookings
+Content-Type: application/json
+
+{
+  "searchId": "{{searchTwoPassengers.response.body.$.searchId}}",
+  "flightId": "{{searchTwoPassengers.response.body.$.flights[0].id}}",
+  "passengers": [
+    {
+      "fullName": "Jane Doe",
+      "email": "jane@example.com",
+      "documentNumber": "X1234567"
+    }
+  ]
+}

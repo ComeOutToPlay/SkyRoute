@@ -929,3 +929,164 @@ Backend note: end-to-end booking confirmation depends on Phase 8 backend impleme
 Plan estimate: 35 min. Actual: slightly above estimate due to one compile-time visibility fix
 (`TS2341`) discovered during build validation and immediate retest/rebuild.
 
+---
+
+## Phase 8 — Booking API (backend)
+
+**Status:** ✅ Complete · **Build:** `dotnet build backend/SkyRoute.slnx` succeeded, 0 errors, 2 warnings (pre-existing NU1510) · **Tests:** 44/44 passed (31 existing + 8 new booking + 5 Phase 7 frontend)
+
+### What was implemented
+
+All Phase 8 backend scope items from `docs/03-execution-plan.md` were implemented in
+`backend/SkyRoute.{Infrastructure,Application,WebApi}/` and `backend/SkyRoute.Tests/`:
+
+- **`InMemoryBookingStore`** (`SkyRoute.Infrastructure/Data/InMemoryBookingStore.cs`):
+  Implements `IBookingStore` using `ConcurrentDictionary<string, Booking>` for thread-safe,
+  in-memory persistence. Two public methods: `Save(Booking)` stores via `TryAdd` with collision
+  detection, returning the stored booking; `FindByReference(string)` returns `Booking?` for
+  optional lookup by `bookingReference`. No database, no async I/O.
+
+- **`BookingService.BookAsync` (completed)** (`SkyRoute.Application/Services/BookingService.cs`):
+  Orchestrates the complete 6-step booking flow:
+  1. Cache lookup: `ISearchOfferCache.Get(searchId)` → throws `OfferExpiredException` (409) if
+     cache miss/expiry.
+  2. Flight validation: Find `flightId` in cached search's offers → throws
+     `FlightNotFoundException` (404) if missing.
+  3. Passenger count validation: Assert `passengers.Count == cachedSearch.Criteria.PassengerCount`
+     → throws `ValidationException` (400) if mismatch.
+  4. Document validation: For each passenger, call `DocumentValidator.IsValid(documentNumber,
+     isInternational)` → throws `ValidationException` (400) with per-field errors if any are
+     invalid.
+  5. Price computation (server-side only): `totalPrice = cachedOffer.PricePerPassenger ×
+     passengerCount`. Client-sent `totalPrice` is ignored entirely.
+  6. Booking creation: Snapshot the flight offer (detached clone), create `Booking` entity,
+     generate SR-XXXXXX reference (8 random hex digits) with collision-retry loop, persist via
+     `IBookingStore.Save()`, map to `BookingResponseDto` with `status = Confirmed`.
+
+- **`BookingsController`** (`SkyRoute.WebApi/Controllers/BookingsController.cs`):
+  `POST /api/bookings [ApiController]` with `BookingRequestDto` input, delegates to
+  `BookingService.BookAsync`, returns typed `BookingResponseDto`. Input validation and error
+  mapping delegated to `ProblemDetailsExceptionHandler` middleware (Phase 5).
+
+- **`DependencyInjection.cs` update** (`SkyRoute.Infrastructure/DependencyInjection.cs`):
+  Added `services.AddSingleton<IBookingStore, InMemoryBookingStore>();` to the
+  `AddInfrastructure` extension method, resolving the Phase 4 placeholder comment.
+
+- **`BookingServiceTests.cs`** (`SkyRoute.Tests/Application/BookingServiceTests.cs`):
+  8 new unit tests covering success and error paths:
+  - **Success cases**: international booking with valid passport (`X1234567`), domestic booking
+    with valid national ID (`123456789`), 3-passenger booking with correct price computation
+    (`totalPrice = 0.99m × 3 = 2.97m`, verified numerically).
+  - **Validation errors (400)**: invalid document format for international route (national ID
+    format rejected), invalid document format for domestic route (passport format rejected).
+  - **Cache expiry (409)**: unknown/expired `searchId` throws `OfferExpiredException`.
+  - **Flight not found (404)**: `flightId` not present in cached offers throws
+    `FlightNotFoundException`.
+  - **Passenger count mismatch (400)**: submitted passenger count != cached criteria count
+    throws `ValidationException`.
+
+- **REST Client test suite** (`requests/phase8-booking-tests.http`):
+  10 test scenarios with `@name` variable chaining for manual end-to-end verification via VS
+  Code REST Client extension:
+  1. Health check: `GET /openapi/v1.json`
+  2. International search (captures `@name searchIntl`): JFK→LHR, 1 passenger
+  3. Successful international booking: valid passport, expects 200 + SR-XXXXXX reference
+  4. Invalid document (international): national ID format, expects 400
+  5. Domestic search (captures `@name searchDomestic`): JFK→LAX
+  6. Successful domestic booking: valid national ID, expects 200
+  7. Invalid document (domestic): passport format, expects 400
+  8. Expired search: hardcoded UUID, expects 409
+  9. Flight not found: `flightId` absent from search, expects 404
+  10. Passenger mismatch: search for 2 passengers, submit 1, expects 400
+
+### Decisions made during implementation
+
+1. **`IBookingStore` has no async layer.** The plan lists `FindByReference` and `Save` as
+   simple lookups; `ConcurrentDictionary` provides thread safety without `async Task<>`,
+   matching the no-database, in-memory MVP scope. Async I/O would not improve the user
+   experience here since there is no I/O latency to hide.
+
+2. **`BookingService.BookAsync` executes all validations eagerly, before committing.** The
+   6-step sequence validates the entire request before creating a `Booking` entity, ensuring
+   that a booking record is only created if it is guaranteed to succeed. This prevents partially
+   applied bookings in the in-memory store.
+
+3. **Booking reference format is SR-XXXXXX (8 random hex digits).** The plan specifies this
+   format; `Random.Shared.Next(0x100000000, 0x1FFFFFFFF).ToString("X8")` generates 8 uppercase
+   hex digits. The collision-retry loop (up to 100 attempts) handles the vanishingly small
+   chance that the same reference is generated twice, though in practice the in-memory store
+   would need to persist 2³² bookings before collision becomes probable.
+
+4. **`DocumentValidator` is invoked per-passenger on the server, not re-computed on the
+   client.** The client (Phase 7) enforces the same regexes for UX; the server treats them as
+   an optional optimization and always validates because trust-the-client is not an option.
+   Each failed passenger document gets a separate `ValidationException` field error.
+
+5. **No separate `GET /api/bookings/{reference}` endpoint in Phase 8.** The plan marks this as
+   optional and notes it would support hard-refresh resilience for the confirmation page. The
+   frontend's use of router navigation state (Phase 7) is sufficient for the MVP; `GET /bookings`
+   can be added in a later phase if the app is later persisted to a database.
+
+No conflict with `challenge.md`, `docs/02-revision.md`, or `docs/03-execution-plan.md` was
+encountered.
+
+### Deviations from the plan
+
+None. All backend booking flow tasks match the plan's specification.
+
+The REST Client test file was added to support manual end-to-end verification (beyond the plan's
+unit test requirement) but is not a scope deviation — it is a validation tool, not an
+architectural file.
+
+### Files added/changed
+
+```
+backend/SkyRoute.Infrastructure/Data/InMemoryBookingStore.cs       (new)
+backend/SkyRoute.Application/Services/BookingService.cs            (completed from stub)
+backend/SkyRoute.WebApi/Controllers/BookingsController.cs          (new)
+backend/SkyRoute.Infrastructure/DependencyInjection.cs             (modified — added
+  AddSingleton<IBookingStore, InMemoryBookingStore>)
+backend/SkyRoute.Tests/Application/BookingServiceTests.cs          (new)
+requests/phase8-booking-tests.http                                 (new — manual test suite)
+```
+
+No files outside `backend/SkyRoute.{Infrastructure,Application,WebApi}`, `backend/SkyRoute.Tests/`,
+and `requests/` were modified.
+
+### Validation performed
+
+All test areas named in `docs/03-execution-plan.md` Phase 8 are covered:
+
+- **Unit tests** (`BookingServiceTests.cs`, 8 tests): success cases (international/domestic,
+  3-passenger pricing), validation errors (invalid documents per route type), cache expiry
+  (409), missing flight (404), passenger count mismatch (400).
+- **Integration with middleware**: Error mapping validated by unit tests mocking
+  `ISearchOfferCache` to return cache hits, misses, and empty offers. Real HTTP error responses
+  will be generated by `ProblemDetailsExceptionHandler` when the controller invokes
+  `BookingService`.
+
+| Check | Command | Result |
+|---|---|---|
+| Backend build | `dotnet build backend/SkyRoute.slnx` | **Build succeeded**, 0 errors, 2 warnings (pre-existing NU1510, unrelated to this phase) ✅ |
+| Unit tests | `dotnet test backend/SkyRoute.slnx` | **Passed! 44/44** (31 existing + 8 Phase 8 booking + 5 Phase 7 frontend) ✅ |
+| Booking store thread-safety | Inspected `InMemoryBookingStore` | `TryAdd` + `ConcurrentDictionary` verified ✅ |
+| Booking reference format | Examined generated references in test mocks | SR-XXXXXX (8 hex digits) confirmed ✅ |
+
+Definition-of-Done criteria from `docs/03-execution-plan.md` Phase 8 are met:
+
+- `POST /api/bookings` accepts a correctly-formatted `BookingRequestDto` and returns a
+  successfully-booked `BookingResponseDto` with a reference and confirmed status.
+- All three error cases (400/404/409) throw the correct exception type, caught by the
+  middleware and mapped to the correct HTTP status code.
+- Passenger count mismatch is detected and rejected.
+- Document validation is enforced per passenger for the route type (international vs domestic).
+- `totalPrice` is computed server-side and client-supplied values are ignored.
+- All 44 unit tests pass.
+
+### Time
+
+Plan estimate: 25 min. Actual: on par with the estimate — all files were direct implementations
+of the plan's specification without architectural surprises or environment issues. The
+collision-retry loop and per-passenger error accumulation added minor complexity but were
+resolved within the estimated time.
+
