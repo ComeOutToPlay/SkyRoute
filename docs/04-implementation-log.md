@@ -1090,3 +1090,115 @@ of the plan's specification without architectural surprises or environment issue
 collision-retry loop and per-passenger error accumulation added minor complexity but were
 resolved within the estimated time.
 
+---
+
+## Phase 9 — Tests (checkpoint & consolidation)
+
+**Status:** ✅ Complete · **Backend tests:** 44/44 passed · **Frontend tests:** 12/12 passed (5 files)
+
+### What was implemented
+
+Phase 9 was a **consolidation checkpoint**, not a from-scratch test-writing phase. All required
+test suites were already written **incrementally during Phases 2–8** as each feature was
+implemented. This phase validated that all mandatory test areas from `docs/03-execution-plan.md`
+Phase 9 tasks 1–9 were present and green:
+
+**Backend test coverage (no new files added — all tests pre-existing):**
+
+1. **GlobalAir pricing** (`Domain`, `Infrastructure` provider tests):
+   - `+15% surcharge` applied and rounded to 2 decimals
+   - Cabin multiplier applied before the provider rule
+   - Away-from-zero midpoint rounding (`2.345m → 2.35m`) proven with synthetic values via
+     `RouteFareTable.RoundAwayFromZero` extraction
+2. **BudgetWings pricing** (`Infrastructure` provider tests):
+   - `-10% discount` applied to base fare only, never compounded
+   - `$29.99 floor` enforced, engaged on the cheap JFK↔ORD route
+   - Cabin multiplier applied before provider rule
+   - First Class returns empty (coverage excluded)
+   - Long-haul routes (JFK↔LHR) return empty (coverage excluded)
+3. **DocumentValidator** (`Domain` rules tests):
+   - Passport format (`^[A-Z]{1,2}[0-9]{6,7}$`) accepts valid, rejects national ID format
+   - National ID format (`^[0-9]{9}$`) accepts valid, rejects passport format
+   - Dispatcher `IsValid(documentNumber, isInternational)` routes to correct rule
+4. **FlightSearchService** (`Application` service tests):
+   - Aggregation: `totalPrice = pricePerPassenger × passengerCount`
+   - One provider throwing does not fail the whole search; others' offers still return
+   - Zero-result search (uncovered route or no providers) returns empty list + HTTP 200
+   - Unknown airport code throws `ValidationException` (400)
+   - `IsInternational` flag correctly set in response based on country codes
+5. **BookingService** (`Application` service tests):
+   - International booking succeeds with valid passport
+   - Domestic booking succeeds with valid national ID
+   - 400 error when international booking uses national ID format
+   - 400 error when domestic booking uses passport format
+   - 409 error for unknown/expired `searchId`
+   - 404 error when `flightId` missing from cached search
+   - 400 error when passenger count mismatches cached search count
+   - `totalPrice` computed server-side from cached offer and passenger count (never from client)
+
+**Frontend test coverage (no new files added — all tests pre-existing):**
+
+6. **Sort function** (`features/results/sort.spec.ts`):
+   - `price-asc`, `price-desc`, `duration-asc`, `departure-asc` all correct
+   - Function is pure; source array is not mutated
+7. **Document-number validator factory** (`shared/validators/document-number.spec.ts`):
+   - Switches passport rule for international routes
+   - Switches national ID rule for domestic routes
+   - Correctly rejects mismatched document types
+
+### Decisions made during implementation
+
+None. Phase 9 is a checkpoint, not a decision-making phase. All tests were written as part of
+their respective feature phases (2–8) with no additional logic or architectural changes required.
+
+### Deviations from the plan
+
+None. All mandatory test areas (tasks 1–9) are present and passing. Optional item 10
+(WebApplicationFactory integration test) was not added, as noted below.
+
+### Files added/changed
+
+None. All test files already existed from Phases 2–8:
+
+```
+backend/SkyRoute.Tests/Domain/DocumentValidatorTests.cs              (existing, from Phase 2)
+backend/SkyRoute.Tests/Domain/FlightSearchCriteriaTests.cs           (existing, from Phase 2)
+backend/SkyRoute.Tests/Infrastructure/GlobalAirProviderTests.cs      (existing, from Phase 4)
+backend/SkyRoute.Tests/Infrastructure/BudgetWingsProviderTests.cs    (existing, from Phase 4)
+backend/SkyRoute.Tests/Infrastructure/RouteFareTableRoundingTests.cs (existing, from Phase 4)
+backend/SkyRoute.Tests/Application/FlightSearchServiceTests.cs       (existing, from Phase 5)
+backend/SkyRoute.Tests/Application/BookingServiceTests.cs            (existing, from Phase 8)
+frontend/skyroute-app/src/app/features/results/sort.spec.ts         (existing, from Phase 6)
+frontend/skyroute-app/src/app/shared/validators/document-number.spec.ts  (existing, from Phase 7)
+```
+
+### Validation performed
+
+All test suites were run to gate Phase 9 completion:
+
+| Check | Command | Result |
+|---|---|---|
+| Backend unit tests | `dotnet test backend/SkyRoute.slnx` | **Passed! 44/44** (items 1–7 of Phase 9 checklist) ✅ |
+| Frontend unit tests | `npm test -- --watch=false` (from `frontend/skyroute-app`) | **Passed! 12/12 tests across 5 files** (items 8–9 of Phase 9 checklist) ✅ |
+| Backend build | `dotnet build backend/SkyRoute.slnx` | **Build succeeded**, 0 errors, 2 warnings (pre-existing NU1510, unrelated to this phase) ✅ |
+
+Definition-of-Done criteria from `docs/03-execution-plan.md` Phase 9 are met:
+
+- Items 1–7 (backend pricing, validation, search, booking): all unit tests green in `dotnet test`
+  output, covering all pricing rules, cabin multipliers, rounding behavior, document validation
+  per route type, provider failure isolation, cache expiry, flight lookup, and passenger count
+  validation.
+- Items 8–9 (frontend sort and document validator): all tests green in Vitest, covering purity
+  and all four sort modes, plus rule switching by `isInternational`.
+- Item 10 (optional WebApplicationFactory integration test): not implemented, as it is explicitly
+  optional and all mandatory criteria are green. This decision keeps Phase 9 as a quick
+  checkpoint (no new code written) rather than extending into integration testing.
+
+### Time
+
+Plan estimate: 20 min. Actual: under estimate — Phase 9 was purely a consolidation checkpoint,
+not a test-writing phase. No new files were created; the audit simply confirmed that all test
+suites written during Phases 2–8 still pass with 44/44 backend + 12/12 frontend, green on both
+platforms. The phase took ~5 minutes to validate (run both test suites, confirm counts), since
+all tests pre-existed.
+
