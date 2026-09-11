@@ -2,6 +2,7 @@ import { CommonModule } from '@angular/common';
 import { Component, computed, inject } from '@angular/core';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { BookingResponse } from '../../core/models/booking';
+import { SearchState } from '../../core/state/search-state';
 import { DurationPipe } from '../../shared/pipes/duration';
 
 @Component({
@@ -13,6 +14,7 @@ import { DurationPipe } from '../../shared/pipes/duration';
 export class ConfirmationComponent {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
+  private readonly searchState = inject(SearchState);
 
   private readonly navigationState =
     (this.router.getCurrentNavigation()?.extras.state?.['booking'] as BookingResponse | undefined) ??
@@ -21,4 +23,8 @@ export class ConfirmationComponent {
   protected readonly bookingReference =
     this.route.snapshot.paramMap.get('bookingReference') ?? '';
   protected readonly booking = computed(() => this.navigationState ?? null);
+
+  protected startNewSearch(): void {
+    this.searchState.resetForNewSearch();
+  }
 }

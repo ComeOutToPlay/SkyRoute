@@ -37,15 +37,31 @@
             <input type="text" formControlName="fullName" />
           </label>
 
+          @if (passenger.get('fullName')?.errors?.['required'] && passenger.get('fullName')?.touched) {
+            <p class="error" role="alert">Full name is required.</p>
+          }
+
           <label>
             Email
             <input type="email" formControlName="email" />
           </label>
 
+          @if (passenger.get('email')?.errors?.['required'] && passenger.get('email')?.touched) {
+            <p class="error" role="alert">Email is required.</p>
+          }
+
+          @if (passenger.get('email')?.errors?.['email'] && passenger.get('email')?.touched) {
+            <p class="error" role="alert">Email format is invalid.</p>
+          }
+
           <label>
             {{ documentLabel() }}
             <input type="text" formControlName="documentNumber" />
           </label>
+
+          @if (passenger.get('documentNumber')?.errors?.['required'] && passenger.get('documentNumber')?.touched) {
+            <p class="error" role="alert">{{ documentLabel() }} is required.</p>
+          }
 
           @if (passenger.get('documentNumber')?.errors?.['passportFormat']) {
             <p class="error" role="alert">Passport format is invalid.</p>

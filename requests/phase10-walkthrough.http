@@ -1,0 +1,210 @@
+@baseUrl = http://localhost:5169
+@futureDate = 2026-12-01
+
+### Phase 10 walkthrough (REST Client)
+### Covers the REST-executable checks from docs/04-phase10-acceptance-checklist.md:
+### A2, A3 (REST), B1 (REST), B2 (REST), C1 (REST), D3 (REST)
+### Plus validation/contract checks for rows 13/14 from docs/03-execution-plan.md.
+
+### A2) Airports sanity check
+# Expected: 200 OK
+# Verify: exactly 6 airports and required fields (code, city, country, countryCode)
+# Verify specifically: JFK.countryCode == "US" and LHR.countryCode == "GB"
+GET {{baseUrl}}/api/airports
+
+### A3) International search (JFK -> LHR)
+# @name searchIntl
+# Expected: 200 OK
+# Verify: isInternational == true
+# Verify: flights array has at least 1 item
+# Verify per flight: id, provider, flightNumber, origin, destination,
+# departureTime, arrivalTime, durationMinutes, cabinClass,
+# pricePerPassenger, totalPrice
+# Verify: totalPrice = pricePerPassenger * passengers (passengers=1 here)
+POST {{baseUrl}}/api/flights/search
+Content-Type: application/json
+
+{
+  "origin": "JFK",
+  "destination": "LHR",
+  "departureDate": "{{futureDate}}",
+  "passengers": 1,
+  "cabinClass": "Economy"
+}
+
+### A5 REST variant) International booking success (valid passport)
+# Expected: 200 OK
+# Verify: bookingReference format SR-XXXXXX, status == "Confirmed"
+# Verify: totalPrice = pricePerPassenger * passengerCount
+POST {{baseUrl}}/api/bookings
+Content-Type: application/json
+
+{
+  "searchId": "{{searchIntl.response.body.$.searchId}}",
+  "flightId": "{{searchIntl.response.body.$.flights[0].id}}",
+  "passengers": [
+    {
+      "fullName": "Jane Doe",
+      "email": "jane@example.com",
+      "documentNumber": "X1234567"
+    }
+  ]
+}
+
+### Row 13 contract check) International booking with invalid document
+# Expected: 400 Bad Request
+# Verify: validation error for passengers[0].documentNumber
+POST {{baseUrl}}/api/bookings
+Content-Type: application/json
+
+{
+  "searchId": "{{searchIntl.response.body.$.searchId}}",
+  "flightId": "{{searchIntl.response.body.$.flights[0].id}}",
+  "passengers": [
+    {
+      "fullName": "Jane Doe",
+      "email": "jane@example.com",
+      "documentNumber": "123456789"
+    }
+  ]
+}
+
+### B1) Domestic search (JFK -> LAX)
+# @name searchDomestic
+# Expected: 200 OK
+# Verify: isInternational == false
+# Verify: flights include providers GlobalAir and BudgetWings
+POST {{baseUrl}}/api/flights/search
+Content-Type: application/json
+
+{
+  "origin": "JFK",
+  "destination": "LAX",
+  "departureDate": "{{futureDate}}",
+  "passengers": 1,
+  "cabinClass": "Economy"
+}
+
+### B2) Domestic booking success (valid national ID)
+# Expected: 200 OK
+# Verify: bookingReference format SR-XXXXXX, status == "Confirmed"
+POST {{baseUrl}}/api/bookings
+Content-Type: application/json
+
+{
+  "searchId": "{{searchDomestic.response.body.$.searchId}}",
+  "flightId": "{{searchDomestic.response.body.$.flights[0].id}}",
+  "passengers": [
+    {
+      "fullName": "John Roe",
+      "email": "john@example.com",
+      "documentNumber": "123456789"
+    }
+  ]
+}
+
+### Row 14 contract check) Domestic booking with passport-like document
+# Expected: 400 Bad Request
+# Verify: validation error for passengers[0].documentNumber
+POST {{baseUrl}}/api/bookings
+Content-Type: application/json
+
+{
+  "searchId": "{{searchDomestic.response.body.$.searchId}}",
+  "flightId": "{{searchDomestic.response.body.$.flights[0].id}}",
+  "passengers": [
+    {
+      "fullName": "John Roe",
+      "email": "john@example.com",
+      "documentNumber": "X1234567"
+    }
+  ]
+}
+
+### C1) Empty state route (ORD -> FCO)
+# @name searchEmpty
+# Expected: 200 OK
+# Verify: flights is an empty array []
+POST {{baseUrl}}/api/flights/search
+Content-Type: application/json
+
+{
+  "origin": "ORD",
+  "destination": "FCO",
+  "departureDate": "{{futureDate}}",
+  "passengers": 1,
+  "cabinClass": "Economy"
+}
+
+### D3) Unknown/expired searchId simulation
+# Expected: 409 Conflict
+# Verify: ProblemDetails body with offer expired semantics
+POST {{baseUrl}}/api/bookings
+Content-Type: application/json
+
+{
+  "searchId": "00000000-0000-0000-0000-000000000000",
+  "flightId": "{{searchIntl.response.body.$.flights[0].id}}",
+  "passengers": [
+    {
+      "fullName": "Jane Doe",
+      "email": "jane@example.com",
+      "documentNumber": "X1234567"
+    }
+  ]
+}
+
+### Optional hardening checks (from prior phase)
+
+### flightId not found in search context
+# Expected: 404 Not Found
+POST {{baseUrl}}/api/bookings
+Content-Type: application/json
+
+{
+  "searchId": "{{searchIntl.response.body.$.searchId}}",
+  "flightId": "globalair-NOPE-20261201-Economy",
+  "passengers": [
+    {
+      "fullName": "Jane Doe",
+      "email": "jane@example.com",
+      "documentNumber": "X1234567"
+    }
+  ]
+}
+
+### Passenger count mismatch
+# @name searchTwoPax
+# Expected: 200 OK
+POST {{baseUrl}}/api/flights/search
+Content-Type: application/json
+
+{
+  "origin": "JFK",
+  "destination": "LHR",
+  "departureDate": "{{futureDate}}",
+  "passengers": 2,
+  "cabinClass": "Economy"
+}
+
+### Booking with fewer passengers than searched
+# Expected: 400 Bad Request (passenger count mismatch)
+POST {{baseUrl}}/api/bookings
+Content-Type: application/json
+
+{
+  "searchId": "{{searchTwoPax.response.body.$.searchId}}",
+  "flightId": "{{searchTwoPax.response.body.$.flights[0].id}}",
+  "passengers": [
+    {
+      "fullName": "Jane Doe",
+      "email": "jane@example.com",
+      "documentNumber": "X1234567"
+    }
+  ]
+}
+
+### Browser-only checks (not executable in REST Client)
+# - A4: Sorting changes order without new API calls (verify in DevTools Network tab)
+# - UI labels: "Passport Number" for international and "National ID" for domestic
+# - Loading indicator and empty-state rendering behavior

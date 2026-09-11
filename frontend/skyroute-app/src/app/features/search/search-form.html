@@ -7,52 +7,79 @@
 
   <form [formGroup]="form" (ngSubmit)="submit()" novalidate>
     <div class="grid">
-      <label>
-        Origin
-        <select formControlName="origin">
-          <option value="">Select origin</option>
-          @for (airport of searchState.airports(); track airport.code) {
-            <option [value]="airport.code">{{ airport.code }} - {{ airport.city }}</option>
+      <div class="field">
+        <label>
+          Origin
+          <select formControlName="origin">
+            <option value="">Select origin</option>
+            @for (airport of searchState.airports(); track airport.code) {
+              <option [value]="airport.code">{{ airport.code }} - {{ airport.city }}</option>
+            }
+          </select>
+        </label>
+        <p class="field-error" [class.visible]="form.controls.origin.errors?.['required'] && (form.controls.origin.touched || form.controls.origin.dirty)">
+          @if (form.controls.origin.errors?.['required'] && (form.controls.origin.touched || form.controls.origin.dirty)) {
+            Origin is required.
           }
-        </select>
-      </label>
+        </p>
+      </div>
 
-      <label>
-        Destination
-        <select formControlName="destination">
-          <option value="">Select destination</option>
-          @for (airport of searchState.airports(); track airport.code) {
-            <option [value]="airport.code">{{ airport.code }} - {{ airport.city }}</option>
+      <div class="field">
+        <label>
+          Destination
+          <select formControlName="destination">
+            <option value="">Select destination</option>
+            @for (airport of searchState.airports(); track airport.code) {
+              <option [value]="airport.code">{{ airport.code }} - {{ airport.city }}</option>
+            }
+          </select>
+        </label>
+        <p class="field-error" [class.visible]="form.controls.destination.errors?.['required'] && (form.controls.destination.touched || form.controls.destination.dirty)">
+          @if (form.controls.destination.errors?.['required'] && (form.controls.destination.touched || form.controls.destination.dirty)) {
+            Destination is required.
           }
-        </select>
-      </label>
+        </p>
+      </div>
 
-      <label>
-        Departure date
-        <input type="date" formControlName="departureDate" />
-      </label>
-
-      <label>
-        Passengers
-        <input type="number" min="1" max="9" formControlName="passengers" />
-      </label>
-
-      <label>
-        Cabin class
-        <select formControlName="cabinClass">
-          @for (cabinClass of cabinClasses; track cabinClass) {
-            <option [value]="cabinClass">{{ cabinClass }}</option>
+      <div class="field">
+        <label>
+          Departure date
+          <input type="date" formControlName="departureDate" />
+        </label>
+        <p class="field-error" [class.visible]="form.controls.departureDate.errors?.['required'] && (form.controls.departureDate.touched || form.controls.departureDate.dirty)">
+          @if (form.controls.departureDate.errors?.['required'] && (form.controls.departureDate.touched || form.controls.departureDate.dirty)) {
+            Departure date is required.
           }
-        </select>
-      </label>
+        </p>
+      </div>
+
+      <div class="field">
+        <label>
+          Passengers
+          <input type="number" min="1" max="9" formControlName="passengers" />
+        </label>
+        <p class="field-error" [class.visible]="form.controls.passengers.invalid && (form.controls.passengers.touched || form.controls.passengers.dirty)">
+          @if (form.controls.passengers.invalid && (form.controls.passengers.touched || form.controls.passengers.dirty)) {
+            Passenger count must be between 1 and 9.
+          }
+        </p>
+      </div>
+
+      <div class="field">
+        <label>
+          Cabin class
+          <select formControlName="cabinClass">
+            @for (cabinClass of cabinClasses; track cabinClass) {
+              <option [value]="cabinClass">{{ cabinClass }}</option>
+            }
+          </select>
+        </label>
+        <p class="field-error" aria-hidden="true"></p>
+      </div>
     </div>
 
     @if (form.hasError('sameAirport') && (form.touched || form.dirty)) {
       <p class="error" role="alert">Origin and destination must be different airports.</p>
-    }
-
-    @if (form.controls.passengers.invalid && (form.controls.passengers.touched || form.controls.passengers.dirty)) {
-      <p class="error" role="alert">Passenger count must be between 1 and 9.</p>
     }
 
     <button type="submit">Search flights</button>

@@ -81,4 +81,15 @@ export class SearchState {
   setError(errorMessage: string | null): void {
     this.error.set(errorMessage);
   }
+
+  resetForNewSearch(): void {
+    this.criteria.set(null);
+    this.searchId.set(null);
+    this.results.set([]);
+    this.isInternational.set(false);
+    this.sortMode.set('price-asc');
+    this.selectedOfferId.set(null);
+    this.loading.set(false);
+    this.error.set(null);
+  }
 }
