@@ -72,17 +72,22 @@ Runs **Vitest** test suite covering:
 
 ### Clean Architecture (Backend)
 
-The backend is structured in **four layers**, enforcing dependency direction from outer to inner:
+The backend is structured in **four layers**. Dependencies point inward toward `Domain`, which has no dependencies of its own; `Infrastructure` depends on `Domain` and `Application` (it implements their abstractions) rather than the other way around:
 
+```mermaid
+graph TD
+    WebApi --> Application
+    WebApi --> Infrastructure
+    Infrastructure --> Application
+    Infrastructure --> Domain
+    Application --> Domain
 ```
-WebApi (controllers, middleware, composition root)
-  ↓
-Application (services, DTOs, orchestration logic)
-  ↓
-Domain (entities, value objects, enums, business rules)
-  ↓
-Infrastructure (providers, caching, persistence)
-```
+
+In plain terms:
+- `WebApi` references `Application` and `Infrastructure`.
+- `Infrastructure` references `Domain` and `Application` (it implements the abstractions `Application` defines, e.g. `IFlightProvider`, `ISearchOfferCache`, `IBookingStore`).
+- `Application` references `Domain`.
+- `Domain` references nothing — it is the innermost, independent layer.
 
 **Rationale:**
 - **Domain** is independent — it contains pure business logic (`DocumentValidator`, `FlightOffer`, `Booking`) with zero external dependencies.
@@ -125,7 +130,7 @@ public interface IFlightProvider
 
 No other code changes.
 
-**Error isolation:** If one provider throws, it is logged and excluded from the results; the search does not fail entirely.
+**Error isolation:** If one provider throws, the exception is caught silently (no logging infrastructure added) and that provider contributes zero offers; the search does not fail entirely.
 
 ### `IsInternational` is Derived on `FlightSearchCriteria`
 
@@ -195,9 +200,7 @@ These are plausible formats, but not derived from any real-world ID standard. Th
 
 ### Airport Times are Local (No Timezone Database)
 
-Flight times (`departureTime`, `arrivalTime`) are serialized as **local to the airport** (e.g., `2025-12-01T18:30:00`, no `Z` suffix). Angular's `date` pipe renders them as-is. This avoids the complexity of a timezone database or offset computation while remaining realistic for a user navigating within their local timezone.
-
-**Overnight arrivals** are flagged with a `+1` badge in the UI (e.g., "Arrives Dec 2, 06:45") so the date is unambiguous.
+Flight times (`departureTime`, `arrivalTime`) are serialized as **local to the airport** (e.g., `2025-12-01T18:30:00`, no `Z` suffix). Angular's `date` pipe renders them as-is with full day/month/year (e.g., `Dec 2, 2025, 6:45 AM` for overnight arrivals). This avoids the complexity of a timezone database or offset computation while remaining realistic for a user navigating within their local timezone, and the complete date naturally disambiguates overnight arrivals.
 
 ### Pricing is in USD Only
 
@@ -214,6 +217,15 @@ Providers include a `Task.Delay(400, ms)` to simulate network latency. This make
 The route pair ORD (Chicago) ↔ FCO (Rome) is not covered by either mock provider. This is intentional:
 - It makes the **empty state reachable** and demonstrable in the UI.
 - If every search returned flights, the empty state could never be tested.
+
+### BudgetWings Coverage Restrictions (Invented)
+
+`BudgetWingsProvider` returns no offers for **First Class** or **long-haul (transatlantic US↔Europe) routes**, regardless of the fare table — it is meant to behave like a regional budget carrier. This means:
+- A First Class search only ever shows GlobalAir offers.
+- A transatlantic search (e.g. JFK↔LHR) only ever shows GlobalAir offers.
+- Short-haul domestic and intra-Europe searches can show both providers.
+
+This restriction is not in the challenge brief; it was added so the "onboard a third provider" story (§ Provider Abstraction) has a realistic precedent of providers with partial, not just global, coverage.
 
 ### Cabin Class Multipliers (Invented)
 
@@ -236,7 +248,7 @@ Offers are generated from an RNG seeded by the search criteria (origin + destina
 
 Bookings are stored in a `ConcurrentDictionary` in process memory. They are **lost on process restart**. A production system would use EF Core + SQL Server (or similar) and provide booking lookups by reference.
 
-**Workaround for Phase 10:** The confirmation page survives a page refresh because it uses in-memory router state (passing the booking object via navigation extras) and an optional `GET /api/bookings/{reference}` endpoint. Restart the backend, and the booking is gone — this is by design.
+**Note:** The confirmation page reads the booking from browser navigation/history state (passed via router navigation extras when the booking succeeds), which survives a same-tab page refresh. There is no `GET /api/bookings/{reference}` endpoint — opening the confirmation URL directly (e.g. a new tab, or after history state is lost) shows no booking data. This was scoped out as optional (see [`docs/05-implementation-log.md`](docs/05-implementation-log.md)) in favor of higher-priority Phase 8 work. Restart the backend, and the booking is gone regardless — this is by design.
 
 ### No Authentication / Authorization
 
@@ -249,10 +261,10 @@ While the test suite covers the highest-value scenarios (pricing, document valid
 ### No Error Recovery Policies
 
 If a provider fails or times out:
-- The request is logged and excluded from results (graceful degradation).
+- The exception is caught silently and that provider contributes zero offers (graceful degradation); nothing is logged.
 - There are no retry policies, circuit breakers, or exponential backoff.
 
-A production system would implement resilience patterns (e.g., Polly policies).
+A production system would implement resilience patterns (e.g., Polly policies) and add logging/observability around provider failures.
 
 ### No Pagination
 
@@ -266,9 +278,9 @@ There are no Selenium/Playwright tests. The Phase 10 manual walkthrough (with RE
 
 The `loading` signal is shown while a request is in flight, but there is no timeout or retry logic on the client. A slow network that never responds will hang the UI indefinitely.
 
-### Price Recalculation on Client Has Limits
+### No Client-Side Price Recalculation
 
-When a user changes passenger count in the search form, the UI recalculates prices locally based on the rules. However, this calculation is not authoritative — the server always recomputes the total at booking time from the cached offer. Any discrepancy between client-side and server-side calculation would be caught at booking validation.
+The passenger count is fixed at search time (part of the search form) and cannot be changed afterward on the booking screen — there is no "change passenger count" control post-search. The client never computes a price: `pricePerPassenger` and `totalPrice` are both read as-is from the `FlightOfferView` returned by `POST /api/flights/search`, and the same values are echoed back by `POST /api/bookings`. Changing the desired passenger count requires a new search.
 
 ---
 
