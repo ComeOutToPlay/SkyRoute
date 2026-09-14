@@ -21,4 +21,8 @@ public sealed class FlightOffer
     public required int DurationMinutes { get; init; }
     public required CabinClass CabinClass { get; init; }
     public required decimal PricePerPassenger { get; init; }
+
+    // Composite identity derived from immutable offer facts, not a stored/generated value —
+    // single source of truth so FlightSearchService and BookingService never diverge on format.
+    public string Id => $"{Provider.ToLowerInvariant()}-{FlightNumber}-{DepartureTime:yyyyMMdd}-{CabinClass}";
 }

@@ -20,7 +20,7 @@ public sealed class BookingService(ISearchOfferCache searchOfferCache, IBookingS
             ?? throw new OfferExpiredException(request.SearchId);
 
         var selectedOffer = cachedSearch.Offers
-            .FirstOrDefault(offer => string.Equals(BuildFlightId(offer), request.FlightId, StringComparison.Ordinal));
+            .FirstOrDefault(offer => string.Equals(offer.Id, request.FlightId, StringComparison.Ordinal));
         if (selectedOffer is null)
         {
             throw new FlightNotFoundException(request.FlightId);
@@ -138,7 +138,7 @@ public sealed class BookingService(ISearchOfferCache searchOfferCache, IBookingS
     };
 
     private static FlightOfferDto MapToFlightSummaryDto(FlightOffer offer, int passengerCount) => new(
-        Id: BuildFlightId(offer),
+        Id: offer.Id,
         Provider: offer.Provider,
         FlightNumber: offer.FlightNumber,
         Origin: offer.Origin,
@@ -149,9 +149,6 @@ public sealed class BookingService(ISearchOfferCache searchOfferCache, IBookingS
         CabinClass: offer.CabinClass,
         PricePerPassenger: offer.PricePerPassenger,
         TotalPrice: offer.PricePerPassenger * passengerCount);
-
-    private static string BuildFlightId(FlightOffer offer) =>
-        $"{offer.Provider.ToLowerInvariant()}-{offer.FlightNumber}-{offer.DepartureTime:yyyyMMdd}-{offer.CabinClass}";
 
     private static string GenerateReference()
     {

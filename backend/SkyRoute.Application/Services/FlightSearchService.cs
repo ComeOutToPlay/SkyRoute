@@ -72,7 +72,7 @@ public sealed class FlightSearchService(
     }
 
     private static FlightOfferDto MapToDto(FlightOffer offer, int passengerCount) => new(
-        Id: $"{offer.Provider.ToLowerInvariant()}-{offer.FlightNumber}-{offer.DepartureTime:yyyyMMdd}-{offer.CabinClass}",
+        Id: offer.Id,
         Provider: offer.Provider,
         FlightNumber: offer.FlightNumber,
         Origin: offer.Origin,
